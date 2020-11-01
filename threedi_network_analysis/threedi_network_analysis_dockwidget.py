@@ -36,6 +36,7 @@
 # TODO: Make smoothing parameters depedent on cell size
 
 # TODO: Allow save and loading of result sets to a single geopackage incl. styling
+# TODO: There may be a problem if you analyse two result netcdfs with different epsg_code in the same session
 
 import pathlib
 from qgis.PyQt import QtGui, QtWidgets, uic
@@ -75,21 +76,10 @@ class LayerExistsError(Exception):
     pass
 
 
-def add_locked_layer(layer, add_to_layer_tree=True):
-    """
-    Add a layer to the layer tree that cannot be removed by the user
-
-    :param layer: layer to add
-    """
-    project = QgsProject.instance()
-    project.addMapLayer(layer, addToLegend=False)
-    if add_to_layer_tree:
-        project.layerTreeRoot().insertLayer(0, layer)
-    layer.setFlags(QgsMapLayer.Searchable | QgsMapLayer.Identifiable)
-
-
 def bbox_of_features(features: List):
+    """Returns None if empty list is given as input"""
     first_pass = True
+    bbox = None
     for feat in features:
         if first_pass:
             bbox = feat.geometry().boundingBox()
@@ -109,29 +99,6 @@ class ResultSetAdmin:
     @property
     def bbox(self):
         return self._bbox
-
-    def update_bbox(self):
-        # cells
-        request = QgsFeatureRequest().setFilterExpression(f'catchment_id in ({self.id})')
-        features = self.parent.result_cell_layer.getFeatures(request)
-        cells_bbox = bbox_of_features(features=features)
-        bbox = cells_bbox
-
-        # flowlines
-        request = QgsFeatureRequest().setFilterExpression(f'catchment_id in ({self.id})')
-        features = self.parent.result_flowline_layer.getFeatures(request)
-        flowlines_bbox = bbox_of_features(features=features)
-        bbox.combineExtentWith(flowlines_bbox)
-
-        # impervious surfaces
-        if self.parent.result_impervious_surface_layer is not None:
-            request = QgsFeatureRequest().setFilterExpression(f'catchment_id in ({self.id})')
-            features = self.parent.result_impervious_surface_layer.getFeatures(request)
-            impervious_surface_bbox = bbox_of_features(features=features)
-            bbox.combineExtentWith(impervious_surface_bbox)
-
-        self._bbox = bbox
-        # self.canvas.setExtent(zoomRectangle)
 
 
 class Graph3DiQgsConnector:
@@ -156,19 +123,20 @@ class Graph3DiQgsConnector:
         'from_polygon': ogr.OFTInteger
     }
 
-    def __init__(self, canvas, epsg=28992):
+    def __init__(self, canvas, epsg):
         """Constructor."""
         self._filter = None
         self.canvas = canvas
-        self.epsg = epsg
+        self.epsg = None # TODO get from self.graph_3di.gr.epsg_code and use only when self.graph_3di.ready
         self.graph_3di = Graph3Di(subset=None)
         self._sqlite = None
 
         # TODO deze lagen netjes in een groep plaatsen
-        self.create_or_replace_target_node_layer()
-        self.create_result_cell_layer()
-        self.create_result_flowline_layer()
-        self.create_catchment_layer()
+        self.layer_group = None
+        self.target_node_layer = None
+        self.result_cell_layer = None
+        self.result_flowline_layer = None
+        self.result_catchment_layer = None
         self.impervious_surface_layer = None
 
         self.result_sets = []
@@ -187,7 +155,13 @@ class Graph3DiQgsConnector:
     @gr.setter
     def gr(self, value):
         self.graph_3di.gr = value
-        self.create_or_replace_target_node_layer()
+        if isinstance(self.graph_3di.gr, GridH5ResultAdmin):
+            self.epsg = int(self.graph_3di.gr.epsg_code)
+            self.create_layer_group()
+            self.create_result_cell_layer()
+            self.create_result_flowline_layer()
+            self.create_catchment_layer()
+            self.create_or_replace_target_node_layer()
 
     @property
     def sqlite(self):
@@ -243,21 +217,26 @@ class Graph3DiQgsConnector:
             self._filter = None
         else:
             raise TypeError('Filter must be set to None or list of int')
-        filtered_ids = set(self.result_sets) & set(self._filter if self._filter is not None else self.result_sets)
+        self.update_layer_filters()
+
+    def update_layer_filters(self):
+        filtered_ids = set(self.result_sets) & set(self.filter if self.filter is not None else self.result_sets)
         filtered_ids_str = ','.join(map(str, filtered_ids))
-        if self._filter is None:
+        if self.filter is None:
             subset_string = ''
             target_node_layer_analyzed_nodes_rule_str = "result_sets != ''"
         else:
             subset_string = 'catchment_id IN ({})'.format(filtered_ids_str)
-            target_node_layer_analyzed_nodes_rule_str = f'array_intersect( string_to_array("result_sets"),  array({filtered_ids_str}))'
+            target_node_layer_analyzed_nodes_rule_str = \
+                f'array_intersect( string_to_array("result_sets"),  array({filtered_ids_str}))'
 
         flowline_subset_string = ' AND '.join(filter(None, [subset_string, 'kcu != 100'])) # filter to leave subset_string out if empty
         self.result_catchment_layer.setSubsetString(subset_string)
         print(f'filter(): result catchment layer filter set to {subset_string}')
         self.result_cell_layer.setSubsetString(subset_string)
         self.result_flowline_layer.setSubsetString(flowline_subset_string)
-        self.target_node_layer.renderer().rootRule().children()[0].setFilterExpression(target_node_layer_analyzed_nodes_rule_str)
+        self.target_node_layer.renderer().rootRule().children()[0].\
+            setFilterExpression(target_node_layer_analyzed_nodes_rule_str)
 
     def new_result_set_id(self):
         if len(self.result_sets) == 0:
@@ -265,6 +244,18 @@ class Graph3DiQgsConnector:
         else:
             self.result_sets.append(max(self.result_sets) + 1)
         return max(self.result_sets)
+
+    def add_locked_layer(self, layer, add_to_layer_tree=True):
+        """
+        Add a layer to the layer tree that cannot be removed by the user
+
+        :param layer: layer to add
+        """
+        project = QgsProject.instance()
+        project.addMapLayer(layer, addToLegend=False)
+        if add_to_layer_tree:
+            self.layer_group.insertLayer(0, layer)
+        layer.setFlags(QgsMapLayer.Searchable | QgsMapLayer.Identifiable)
 
     def clean_up_locked_layers(self):
         """For all locked layers, remove locks or layers themselves"""
@@ -321,6 +312,10 @@ class Graph3DiQgsConnector:
 
         self.canvas.refresh()
 
+    def create_layer_group(self):
+        root = QgsProject.instance().layerTreeRoot()
+        self.layer_group = root.addGroup('3Di Network Analysis')
+
     def create_or_replace_target_node_layer(self):
         self.remove_target_node_layer()
         if isinstance(self.gr, GridH5ResultAdmin):
@@ -336,7 +331,7 @@ class Graph3DiQgsConnector:
             self.target_node_layer = as_qgis_memory_layer(ogr_lyr, 'Target nodes')
             qml = os.path.join(STYLE_DIR, 'target_nodes.qml')
             self.target_node_layer.loadNamedStyle(qml)
-            add_locked_layer(self.target_node_layer)
+            self.add_locked_layer(self.target_node_layer)
             # TODO Add to group, put group on top of target_node_layer tree
 
     def remove_target_node_layer(self):
@@ -367,7 +362,7 @@ class Graph3DiQgsConnector:
         self.result_cell_layer = as_qgis_memory_layer(ogr_lyr, qgs_lyr_name)
         qml = os.path.join(STYLE_DIR, 'result_cells.qml')
         self.result_cell_layer.loadNamedStyle(qml)
-        add_locked_layer(self.result_cell_layer)
+        self.add_locked_layer(self.result_cell_layer)
 
     def update_analyzed_target_cells(self, target_node_ids, result_set):
         ids_str = ','.join(map(str, target_node_ids))
@@ -386,6 +381,7 @@ class Graph3DiQgsConnector:
             print(f'new result sets string = {new_result_sets}')
             self.target_node_layer.changeAttributeValue(feat.id(), idx, new_result_sets)
         self.target_node_layer.commitChanges()
+        self.update_layer_filters()
 
     def find_cells(self, target_node_ids: List, upstream: bool, result_set: int):
         """Find cells upstream or downstream from the list of target nodes and append them to the result cell layer"""
@@ -430,7 +426,8 @@ class Graph3DiQgsConnector:
 
     def clear_result_cell_layer(self):
         """Remove all features from layer that contains the upstream and/or downstream cells"""
-        self.result_cell_layer.dataProvider().truncate()
+        if self.result_cell_layer is not None:
+            self.result_cell_layer.dataProvider().truncate()
 
     def remove_result_cell_layer(self):
         """Remove layer that contains the upstream and/or downstream cells"""
@@ -457,7 +454,7 @@ class Graph3DiQgsConnector:
         self.result_flowline_layer = as_qgis_memory_layer(ogr_lyr, qgs_lyr_name)
         qml = os.path.join(STYLE_DIR, 'result_flowlines.qml')
         self.result_flowline_layer.loadNamedStyle(qml)
-        add_locked_layer(self.result_flowline_layer)
+        self.add_locked_layer(self.result_flowline_layer)
         self.result_flowline_layer.setSubsetString('kcu != 100')
 
     def find_flowlines(self, target_node_ids: List, upstream: bool, result_set: int):
@@ -499,7 +496,8 @@ class Graph3DiQgsConnector:
 
     def clear_result_flowline_layer(self):
         """Remove all features from layer that contains the upstream and/or downstream flowlines"""
-        self.result_flowline_layer.dataProvider().truncate()
+        if self.result_flowline_layer is not None:
+            self.result_flowline_layer.dataProvider().truncate()
 
     def remove_result_flowline_layer(self):
         """Remove layer that contains the upstream and/or downstream flowlines"""
@@ -528,13 +526,14 @@ class Graph3DiQgsConnector:
         qml = os.path.join(STYLE_DIR,
                            'result_catchments.qml')
         self.result_catchment_layer.loadNamedStyle(qml)
-        add_locked_layer(self.result_catchment_layer)
+        self.add_locked_layer(self.result_catchment_layer)
 
     def clear_catchment_layer(self):
         """Remove all features from layer that contains the upstream and/or downstream cells"""
-        fids = [feat.id() for feat in self.result_catchment_layer.getFeatures()]
-        self.result_catchment_layer.dataProvider().truncate()
-        self.result_catchment_layer.featuresDeleted.emit(fids)
+        if self.result_catchment_layer is not None:
+            fids = [feat.id() for feat in self.result_catchment_layer.getFeatures()]
+            self.result_catchment_layer.dataProvider().truncate()
+            self.result_catchment_layer.featuresDeleted.emit(fids)
 
     def dissolve_cells(self):
         """Dissolve cells in self.result_cells_layer of all not yet dissolved result sets"""
@@ -603,7 +602,7 @@ class Graph3DiQgsConnector:
         qml = os.path.join(STYLE_DIR,
                            'result_impervious_surfaces.qml')
         self.impervious_surface_layer.loadNamedStyle(qml)
-        add_locked_layer(self.impervious_surface_layer)
+        self.add_locked_layer(self.impervious_surface_layer)
 
     def append_impervious_surfaces(self, ids: List = None, expression: str = None):
         """Copy features from the source v2_impervious_surface table to the result table
@@ -623,7 +622,8 @@ class Graph3DiQgsConnector:
 
     def clear_impervious_surface_layer(self):
         """Remove all features from layer"""
-        self.impervious_surface_layer.dataProvider().truncate()
+        if self.impervious_surface_layer is not None:
+            self.impervious_surface_layer.dataProvider().truncate()
 
     def remove_impervious_surface_layer(self):
         """Remove layer that contains the upstream and/or downstream flowlines"""
@@ -645,6 +645,48 @@ class Graph3DiQgsConnector:
                                 ) """
             print(expression)
             self.append_impervious_surfaces(expression=expression)
+
+    def zoom_to_results(self):
+        # TODO project bbox to project crs
+        # catchments
+        # not needed, because bbox of catchments < bbox of cells
+
+        # cells
+        if self.result_cell_layer is not None:
+            features = self.result_cell_layer.getFeatures()
+            cells_bbox = bbox_of_features(features=features)
+            bbox = cells_bbox
+
+        # flowlines
+        if self.result_flowline_layer is not None:
+            features = self.result_flowline_layer.getFeatures()
+            flowlines_bbox = bbox_of_features(features=features)
+            if bbox is None:
+                bbox = flowlines_bbox
+            elif flowlines_bbox is not None:
+                bbox.combineExtentWith(flowlines_bbox)
+
+        # impervious surfaces
+        if self.impervious_surface_layer is not None:
+            features = self.impervious_surface_layer.getFeatures()
+            impervious_surface_bbox = bbox_of_features(features=features)
+            if bbox is None:
+                bbox = impervious_surface_bbox
+            elif impervious_surface_bbox is not None:
+                bbox.combineExtentWith(impervious_surface_bbox)
+
+        if bbox is not None:
+            bbox.scale(1.1)
+            self.canvas.setExtent(bbox)
+        return
+
+    def clear_all(self):
+        self.clear_result_cell_layer()
+        self.clear_result_flowline_layer()
+        self.clear_catchment_layer()
+        self.clear_impervious_surface_layer()
+        self.result_sets = []
+        self.canvas.refreshAllLayers()
 
 
 class CatchmentMapTool(QgsMapToolIdentify):
@@ -740,13 +782,9 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.setupUi(self)
 
         self.iface = iface
-        self.epsg = epsg
-        self.gq = Graph3DiQgsConnector(canvas=self.iface.mapCanvas())
+        self.gq = Graph3DiQgsConnector(canvas=self.iface.mapCanvas(), epsg=epsg)
         self.gq.start_time = 0  # initial value of widget is 0, so valueChanged() signal will not be emitted when ...
         # ... a 3Di result is loaded for the first time
-        self.gq.result_catchment_layer.featureAdded.connect(self.result_sets_count_changed)
-        self.gq.result_catchment_layer.featuresDeleted.connect(self.result_sets_count_changed)
-
         self.mMapLayerComboBoxTargetPolygons.setFilters(QgsMapLayerProxyModel.PolygonLayer)
 
         self.QgsFileWidget3DiResults.fileChanged.connect(self.results_3di_selected)
@@ -795,6 +833,12 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.doubleSpinBoxEndTime.setMaximum(end_time)
             self.doubleSpinBoxEndTime.setSingleStep(output_timestep_best_guess)
             self.doubleSpinBoxEndTime.setValue(end_time)
+
+            if self.gq.result_catchment_layer.receivers(QgsVectorLayer.featureAdded) == 0:
+                self.gq.result_catchment_layer.featureAdded.connect(self.result_sets_count_changed)
+
+            if self.gq.result_catchment_layer.receivers(QgsVectorLayer.featuresDeleted) == 0:
+                self.gq.result_catchment_layer.featuresDeleted.connect(self.result_sets_count_changed)
 
     def results_3di_selected(self):
         results_3di = self.QgsFileWidget3DiResults.filePath()
@@ -886,10 +930,12 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.gq.smooth_catchment_layer()
 
     def pushbutton_clear_results_clicked(self):
-        self.gq.clear_result_cell_layer()
-        self.gq.clear_result_flowline_layer()
-        self.gq.clear_catchment_layer()
-        utils.iface.mapCanvas().refreshAllLayers()
+        self.gq.clear_all()
+        self.checkBoxBrowseResultSets.setEnabled(False)
+        self.spinBoxBrowseResultSets.setValue(1)
+        self.spinBoxBrowseResultSets.setMinimum(1)
+        self.spinBoxBrowseResultSets.setMaximum(1)
+        self.spinBoxBrowseResultSets.setEnabled(False)
 
     def checkbox_upstream_state_changed(self):
         try:
@@ -911,6 +957,7 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.gq.filter = [self.spinBoxBrowseResultSets.value()]
         else:
             self.gq.filter = None
+        self.gq.zoom_to_results()
         self.iface.mapCanvas().refreshAllLayers()
 
     def spinbox_browse_result_sets_value_changed(self):
@@ -919,6 +966,7 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.gq.filter = [self.spinBoxBrowseResultSets.value()]
             print(f'spinbox_browse_result_sets_value_changed(): filter set to {[self.spinBoxBrowseResultSets.value()]}')
             print(f'spinbox_browse_result_sets_value_changed(): filter is now {self.gq.filter}')
+            self.gq.zoom_to_results()
             self.iface.mapCanvas().refreshAllLayers()
 
     def result_sets_count_changed(self):

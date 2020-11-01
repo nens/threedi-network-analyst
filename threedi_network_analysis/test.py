@@ -1,8 +1,8 @@
 import threedigrid
 from threedigrid_networkx import *
 
-ga = 'C:\\Users\\leendert.vanwolfswin\\Documents\\bergeijk\\rev32\\gridadmin.h5'
-res = 'C:\\Users\\leendert.vanwolfswin\\Documents\\bergeijk\\rev32\\results_3di.nc'
+ga = 'C:\\Users\\leendert.vanwolfswin\\Documents\\rotterdam\\v0247\\resultaat\\hoek van holland\\v0247_hoek_van_holland_rev2_100mm_2u\\gridadmin.h5'
+res = 'C:\\Users\\leendert.vanwolfswin\\Documents\\rotterdam\\v0247\\resultaat\\hoek van holland\\v0247_hoek_van_holland_rev2_100mm_2u\\results_3di.nc'
 
 gr = GridH5ResultAdmin(ga, res)
 

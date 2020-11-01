@@ -163,6 +163,12 @@ def time_aggregate(nodes_or_lines, start_time, end_time, aggregation: Aggregatio
     # replace -9999 in raw values by NaN
     raw_values[raw_values == -9999] = np.nan
 
+    # reverse flow direction in 1d-2d links
+    # because of a issue (bug?) in threedigrid that reads these flowlines from the netcdf in reversed order
+    if isinstance(nodes_or_lines, Lines):
+        kcu_types_1d2d = np.array([51, 52, 53, 54, 54, 55, 56, 57, 58])
+        raw_values[:, np.in1d(nodes_or_lines.kcu, kcu_types_1d2d)] *= -1
+
     if aggregation.sign.short_name == 'pos':
         raw_values_signed = raw_values * (raw_values >= 0).astype(int)
     elif aggregation.sign.short_name == 'neg':
@@ -593,7 +599,7 @@ def aggregate_threedi_results(gridadmin: str, results_3di: str, demanded_aggrega
                               resolution: float = None, output_flowlines: bool = True, output_nodes: bool = True,
                               output_cells: bool = True, output_rasters: bool = True):
     """
-
+    # TODO: use new version of threedi_ogr that inludes adding default attributes to nodes, cells and flowline layers
     :param resolution:
     :param interpolation_method:
     :param gridadmin: path to gridadmin.h5
