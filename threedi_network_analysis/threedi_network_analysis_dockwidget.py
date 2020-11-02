@@ -49,9 +49,11 @@ from qgis.core import (
     QgsVectorLayer,
     QgsGeometry,
     QgsProcessingFeedback,
-    QgsMapLayerProxyModel
+    QgsMapLayerProxyModel,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform
 )
-from qgis import utils
+
 from qgis.gui import QgsMapToolIdentify
 from qgis import processing
 
@@ -314,7 +316,7 @@ class Graph3DiQgsConnector:
 
     def create_layer_group(self):
         root = QgsProject.instance().layerTreeRoot()
-        self.layer_group = root.addGroup('3Di Network Analysis')
+        self.layer_group = root.insertGroup(0, '3Di Network Analysis')
 
     def create_or_replace_target_node_layer(self):
         self.remove_target_node_layer()
@@ -677,7 +679,11 @@ class Graph3DiQgsConnector:
 
         if bbox is not None:
             bbox.scale(1.1)
-            self.canvas.setExtent(bbox)
+            project_crs = QgsProject.instance().crs()
+            source_crs = QgsCoordinateReferenceSystem(f"EPSG:{self.epsg}")
+            transform = QgsCoordinateTransform(source_crs, project_crs, QgsProject.instance())
+            projected_bbox = transform.transformBoundingBox(bbox)
+            self.canvas.setExtent(projected_bbox)
         return
 
     def clear_all(self):
