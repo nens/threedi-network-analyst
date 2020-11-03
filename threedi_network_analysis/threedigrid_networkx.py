@@ -2,8 +2,7 @@
 """
 Created on Mon Aug 10 12:14:14 2020
 
-@author: ivar.lokhorst
-@edits: chris.kerklaan
+@author: leendert.vanwolfswinkel
 
 Network analysis for 3Di
 3Di models and results are networks that can be analysed using generic network analysis algorithms. 

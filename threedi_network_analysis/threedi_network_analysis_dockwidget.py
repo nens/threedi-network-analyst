@@ -55,7 +55,7 @@ from qgis.core import (
 )
 
 from qgis.gui import QgsMapToolIdentify
-from qgis import processing
+import processing
 
 from threedigrid.admin.gridresultadmin import GridH5ResultAdmin
 
@@ -335,6 +335,17 @@ class Graph3DiQgsConnector:
             self.target_node_layer.loadNamedStyle(qml)
             self.add_locked_layer(self.target_node_layer)
             # TODO Add to group, put group on top of target_node_layer tree
+
+    def clear_target_node_layer(self):
+        """Empty the result_set field of all features in the target_node_layer"""
+        if self.target_node_layer is not None:
+            request = QgsFeatureRequest()
+            request.setFilterExpression("result_sets != ''")
+            idx = self.target_node_layer.fields().indexFromName('result_sets')
+            self.target_node_layer.startEditing()
+            for feat in self.target_node_layer.getFeatures(request):
+                self.target_node_layer.changeAttributeValue(feat.id(), idx, '')
+            self.target_node_layer.commitChanges()
 
     def remove_target_node_layer(self):
         try:
@@ -687,6 +698,7 @@ class Graph3DiQgsConnector:
         return
 
     def clear_all(self):
+        self.clear_target_node_layer()
         self.clear_result_cell_layer()
         self.clear_result_flowline_layer()
         self.clear_catchment_layer()

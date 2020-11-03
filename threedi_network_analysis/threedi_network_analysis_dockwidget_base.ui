@@ -155,7 +155,11 @@
             </widget>
            </item>
            <item>
-            <widget class="QDoubleSpinBox" name="doubleSpinBoxThreshold"/>
+            <widget class="QDoubleSpinBox" name="doubleSpinBoxThreshold">
+             <property name="maximum">
+              <double>9999999999.000000000000000</double>
+             </property>
+            </widget>
            </item>
            <item>
             <widget class="QLabel" name="label_4">
