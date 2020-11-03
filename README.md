@@ -8,6 +8,8 @@ Download threedi_network_analysis.zip from the [latest release](https://github.c
 
 In QGIS: Main Menu > Plugins > Manage and Install Plugins... > Install from ZIP.
 
+After installation, you will find the plugin at Main Menu > Plugins > 3Di Network Analyst, or the X button in the toolbar.
+
 ## Known issues
 _ImportError_: 
 
