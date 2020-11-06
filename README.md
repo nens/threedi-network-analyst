@@ -19,7 +19,6 @@ _ImportError_:
 This plugin depends on python libraries SciPy and NetworkX. These are included in full installs of QGIS (using the standalone installer or, through the OSGeo4W Network Installer, qgis-full / qgis-ltr-full). If you encounter any Python ImportErrors related to these packages, install them using `pip install scipy` / `pip install networkx` in the OSGeo4W shell.
 
 ## User manual
-### Sections
 The tool has four sections. From top to bottom: Inputs, Settings, Target Nodes, and Outputs. This manual first describes the most basic use of the tool and explains how the advanced options in these sections can be used.
 
 ### Most basic use of the tool
