@@ -38,7 +38,7 @@ The tool has four sections. From top to bottom: Inputs, Settings, Target Nodes, 
 #### Start and end time (s)
 
 ### Target Nodes section
-This section offers you three different ways to select the target nodes for which to compute the upstream and downstream areas.
+The tool allows you to select target nodes (the nodes for which to compute the upstream and downstream areas) in three different ways.
 
 #### Click on canvas
 #### Catchment for selected nodes
