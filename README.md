@@ -2,7 +2,7 @@
  Network Analysis for 3Di results
 
 ## Introduction
-3Di Network Analyst is a QGIS Plugin that allows you to find what is upstream and downstream of any point or area in a [3Di](https://3diwatermanagement.com/) simulation result. Upstream or downstream elements include surface areas (2D cells), sewerage and open water system flow (1D flowlines) and impervious surfaces (0D inflow). If there is a significant net flow from the element to the target location, the element is included in the result set. These connections may consist of any (combination of) type of flowline included in the model (pumplines and breaches are not yet implemented).
+3Di Network Analyst is a QGIS Plugin that allows you to find what is upstream and downstream of any point or area in a [3Di](https://3diwatermanagement.com/) simulation result. Upstream or downstream elements include surface areas (2D cells), sewerage and open water system flow (1D flowlines) and impervious surfaces (0D inflow). If there is a significant net flow from the element to the target location, the element is included in the upstream result set; for the downstream area, this is based on flow from the target node(s) to the downstream elements. These connections may consist of any (combination of) type of flowline included in the model (pumplines and breaches are not yet implemented).
 
 ## Installation
 Install the 3Di Modeller Interface or the 3Di Toolbox QGIS plugin first, [instructions here](https://docs.3di.lizard.net/d_qgis_plugin.html#modeller-interface)
