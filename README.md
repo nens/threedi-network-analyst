@@ -79,7 +79,7 @@ Control whether only upstream, only downstream or both types of cells/areas/flow
 _This option is not yet implemented (always on)_. In addition to the catchments, the 'raw' single cells are included in the result set. The catchments are made from these single cells by dissolving them, removing the holes from the resulting polygons, and then smoothing them. This is more visually attractive, but the single cells are more precise.
 
 #### Flow pattern checkbox
-_This option is not yet implemented (always on)_. When implemented and switched on, arrows showing the flow pattern within the catchments will be included in the result set.
+_This option is not yet implemented (always off)_. When implemented and switched on, arrows showing the flow pattern within the catchments will be included in the result set.
 
 #### Browse result sets
 If you have generated two or more result sets, it may be helpful to browse through them one by one. 
