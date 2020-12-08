@@ -125,15 +125,14 @@ class Graph3DiQgsConnector:
         'from_polygon': ogr.OFTInteger
     }
 
-    def __init__(self, canvas, epsg):
+    def __init__(self, canvas):
         """Constructor."""
         self._filter = None
         self.canvas = canvas
-        self.epsg = None # TODO get from self.graph_3di.gr.epsg_code and use only when self.graph_3di.ready
+        self.epsg = None
         self.graph_3di = Graph3Di(subset=None)
         self._sqlite = None
 
-        # TODO deze lagen netjes in een groep plaatsen
         self.layer_group = None
         self.target_node_layer = None
         self.result_cell_layer = None
@@ -160,10 +159,12 @@ class Graph3DiQgsConnector:
         if isinstance(self.graph_3di.gr, GridH5ResultAdmin):
             self.epsg = int(self.graph_3di.gr.epsg_code)
             self.create_layer_group()
+            # Note: the sequence is deliberate; the target nodes are below the result layers because otherwise, if \
+            # zoomed out too much, the target nodes will cover the result.
+            self.create_or_replace_target_node_layer()
             self.create_result_cell_layer()
             self.create_result_flowline_layer()
             self.create_catchment_layer()
-            self.create_or_replace_target_node_layer()
 
     @property
     def sqlite(self):
@@ -800,7 +801,7 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.setupUi(self)
 
         self.iface = iface
-        self.gq = Graph3DiQgsConnector(canvas=self.iface.mapCanvas(), epsg=epsg)
+        self.gq = Graph3DiQgsConnector(canvas=self.iface.mapCanvas())
         self.gq.start_time = 0  # initial value of widget is 0, so valueChanged() signal will not be emitted when ...
         # ... a 3Di result is loaded for the first time
         self.mMapLayerComboBoxTargetPolygons.setFilters(QgsMapLayerProxyModel.PolygonLayer)

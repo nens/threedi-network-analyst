@@ -81,6 +81,19 @@ def line_geometry_length(line_geometry: np.ndarray):
 line_geometries_to_lengths = np.vectorize(line_geometry_length)
 
 
+def find_finite_1d(x: np.array, index: int):
+    """ Find the a finite (non-nan) value in a numpy 1d array,
+    returning np.nan if the array contains no valid value
+
+    :param x: numpy 1d array
+    :param index: which finite value to return, e.g. 0 for first finite value, -1 for last finite value
+    """
+    try:
+        return x[np.isfinite(x)][index]
+    except IndexError:
+        return np.nan
+
+
 def time_aggregate(nodes_or_lines, start_time, end_time, aggregation: Aggregation,
                    cfl_strictness=1):
     """
@@ -164,7 +177,7 @@ def time_aggregate(nodes_or_lines, start_time, end_time, aggregation: Aggregatio
     raw_values[raw_values == -9999] = np.nan
 
     # reverse flow direction in 1d-2d links
-    # because of a issue (bug?) in threedigrid that reads these flowlines from the netcdf in reversed order
+    # threedigrid reads these flowlines from the netcdf in reversed order (known inconsistency)
     if isinstance(nodes_or_lines, Lines):
         kcu_types_1d2d = np.array([51, 52, 53, 54, 54, 55, 56, 57, 58])
         raw_values[:, np.in1d(nodes_or_lines.kcu, kcu_types_1d2d)] *= -1
@@ -194,8 +207,12 @@ def time_aggregate(nodes_or_lines, start_time, end_time, aggregation: Aggregatio
         result = np.nanmedian(raw_values_signed, axis=0)
     elif aggregation.method.short_name == 'first':
         result = raw_values_signed[0, :]
+    elif aggregation.method.short_name == 'first_non_empty':
+        result = np.array([find_finite_1d(col, index=0) for col in raw_values_signed.T])
     elif aggregation.method.short_name == 'last':
         result = raw_values_signed[-1, :]
+    elif aggregation.method.short_name == 'last_non_empty':
+        result = np.array([find_finite_1d(col, index=-1) for col in raw_values_signed.T])
     elif aggregation.method.short_name == 'above_thres':
         raw_values_above_threshold = np.greater(raw_values_signed, aggregation.threshold)
         time_above_treshold = np.sum(np.multiply(raw_values_above_threshold.T, tintervals).T, axis=0)
@@ -659,12 +676,6 @@ def aggregate_threedi_results(gridadmin: str, results_3di: str, demanded_aggrega
         if da.variable.short_name in AGGREGATION_VARIABLES.short_names(var_types=[VT_FLOW]):
             if output_flowlines:
                 if first_pass_flowlines:
-                    line_results['id'] = lines.id.astype(int)
-                    if gr.has_1d:
-                        line_results['content_type'] = lines.content_type
-                        line_results['spatialite_id'] = lines.content_pk
-                    line_results['kcu'] = lines.kcu
-                    line_results['kcu_description'] = np.vectorize(KCU_DICT.get)(lines.kcu)
                     first_pass_flowlines = False
                 try:
                     line_results[new_column_name] = time_aggregate(nodes_or_lines=lines,
@@ -679,11 +690,6 @@ def aggregate_threedi_results(gridadmin: str, results_3di: str, demanded_aggrega
         elif da.variable.short_name in AGGREGATION_VARIABLES.short_names(var_types=[VT_NODE]):
             if output_nodes or output_cells or output_rasters:
                 if first_pass_nodes:
-                    node_results['id'] = nodes.id.astype(int)
-                    if gr.has_1d:
-                        node_results['spatialite_id'] = nodes.content_pk
-                    node_results['node_type'] = nodes.node_type
-                    node_results['node_type_description'] = np.vectorize(NODE_TYPE_DICT.get)(nodes.node_type)
                     first_pass_nodes = False
                 try:
                     node_results[new_column_name] = time_aggregate(nodes_or_lines=nodes,
@@ -698,11 +704,6 @@ def aggregate_threedi_results(gridadmin: str, results_3di: str, demanded_aggrega
         elif da.variable.short_name in AGGREGATION_VARIABLES.short_names(var_types=[VT_NODE_HYBRID]):
             if output_nodes or output_cells or output_rasters:
                 if first_pass_nodes:
-                    node_results['id'] = nodes.id.astype(int)
-                    if gr.has_1d:
-                        node_results['spatialite_id'] = nodes.content_pk
-                    node_results['node_type'] = nodes.node_type
-                    node_results['node_type_description'] = np.vectorize(NODE_TYPE_DICT.get)(nodes.node_type)
                     first_pass_nodes = False
                 try:
                     node_results[new_column_name] = hybrid_time_aggregate(gr=gr,

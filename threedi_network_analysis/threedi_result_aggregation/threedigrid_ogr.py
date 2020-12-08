@@ -1,3 +1,5 @@
+from typing import Union
+
 from threedigrid.admin.nodes.models import Nodes, Cells
 from threedigrid.admin.lines.models import Lines
 from threedigrid.admin.utils import KCUDescriptor
@@ -17,7 +19,12 @@ import numpy as np
 import ogr
 import osr
 
-def threedigrid_to_ogr(threedigrid_src, tgt_ds, attributes: dict = None, attr_data_types: dict = None, epsg: int = 28992):
+
+def threedigrid_to_ogr(threedigrid_src: Union[Nodes, Cells, Lines],
+                       tgt_ds: ogr.DataSource,
+                       attributes: dict = None,
+                       attr_data_types: dict = None
+                       ):
     """
     Create a ogr target_node_layer from the coordinates of threedigrid Nodes, Cells, or Lines with custom attributes
 
@@ -54,12 +61,11 @@ def threedigrid_to_ogr(threedigrid_src, tgt_ds, attributes: dict = None, attr_da
         out_geom_type = ogr.wkbLineString
         default_attributes['id'] = threedigrid_src.id.astype(int)
         default_attr_types['id'] = ogr.OFTInteger
-        if hasattr(threedigrid_src, 'content_type'):
-            default_attributes['content_type'] = threedigrid_src.content_type
-            default_attr_types['content_type'] = ogr.OFTString
-        if hasattr(threedigrid_src, 'spatialite_id'):
+        if threedigrid_src.has_1d:
             default_attributes['spatialite_id'] = threedigrid_src.content_pk
             default_attr_types['spatialite_id'] = ogr.OFTInteger
+            default_attributes['content_type'] = threedigrid_src.content_type
+            default_attr_types['content_type'] = ogr.OFTString
         default_attributes['kcu'] = threedigrid_src.kcu
         default_attr_types['kcu'] = ogr.OFTInteger
         default_attributes['kcu_description'] = np.vectorize(KCU_DICT.get, otypes=[str])(threedigrid_src.kcu)
@@ -68,7 +74,7 @@ def threedigrid_to_ogr(threedigrid_src, tgt_ds, attributes: dict = None, attr_da
     if isinstance(threedigrid_src, Cells) or isinstance(threedigrid_src, Nodes):
         default_attributes['id'] = threedigrid_src.id.astype(int)
         default_attr_types['id'] = ogr.OFTInteger
-        if isinstance(threedigrid_src, Nodes) and hasattr(threedigrid_src, 'spatialite_id'):
+        if isinstance(threedigrid_src, Nodes) and threedigrid_src.has_1d:
             default_attributes['spatialite_id'] = threedigrid_src.content_pk
             default_attr_types['spatialite_id'] = ogr.OFTInteger
         default_attributes['node_type'] = threedigrid_src.node_type
@@ -76,6 +82,9 @@ def threedigrid_to_ogr(threedigrid_src, tgt_ds, attributes: dict = None, attr_da
         print(threedigrid_src.node_type)
         default_attributes['node_type_description'] = np.vectorize(NODE_TYPE_DICT.get, otypes=[str])(threedigrid_src.node_type)
         default_attr_types['node_type_description'] = ogr.OFTString
+        if isinstance(threedigrid_src, Cells):
+            default_attributes['z_coordinate'] = threedigrid_src.z_coordinate
+            default_attr_types['z_coordinate'] = ogr.OFTReal
 
     all_attributes = default_attributes
     all_attributes.update(attributes)
@@ -84,7 +93,7 @@ def threedigrid_to_ogr(threedigrid_src, tgt_ds, attributes: dict = None, attr_da
 
     # create output layer
     srs = osr.SpatialReference()
-    srs.ImportFromEPSG(epsg)
+    srs.ImportFromEPSG(int(threedigrid_src.epsg_code))
     out_layer = tgt_ds.CreateLayer(out_layer_name, srs, geom_type=out_geom_type)
 
     # create fields
@@ -139,7 +148,7 @@ def threedigrid_to_ogr(threedigrid_src, tgt_ds, attributes: dict = None, attr_da
                     if np.isnan(val):
                         val = None
                 if val is not None:
-                    feature.SetField(attr, val)
+                    feature[attr] = val
 
             # create the actual feature
             out_layer.CreateFeature(feature)
