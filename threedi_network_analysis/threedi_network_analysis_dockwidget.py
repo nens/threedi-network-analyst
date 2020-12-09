@@ -222,6 +222,20 @@ class Graph3DiQgsConnector:
             raise TypeError('Filter must be set to None or list of int')
         self.update_layer_filters()
 
+    def average_cell_size(self, result_set_id):
+        request = QgsFeatureRequest()
+        request.setFilterExpression(f"catchment_id = {result_set_id}")
+        features = self.result_cell_layer.getFeatures(request)
+        count = 0
+        area = 0
+        for feat in features:
+            count += 1
+            area += feat.geometry().area()
+        if area > 0:
+            return area/count
+        else:
+            return None
+
     def update_layer_filters(self):
         filtered_ids = set(self.result_sets) & set(self.filter if self.filter is not None else self.result_sets)
         filtered_ids_str = ','.join(map(str, filtered_ids))
@@ -586,15 +600,19 @@ class Graph3DiQgsConnector:
         # self.result_cell_layer.triggerRepaint()
 
     def smooth_catchment_layer(self):
-        print(f'smooth_catchment_layer(): self.filter = {self.filter}')
         saved_subsetstring = self.result_catchment_layer.subsetString()
         self.result_catchment_layer.setSubsetString('')
         self.result_catchment_layer.startEditing()
         for feature in self.result_catchment_layer.getFeatures():
             if feature.id() not in self.smooth_result_catchments:
+                avg_cell_size = self.average_cell_size(feature['catchment_id'])
+                avg_grid_space = np.sqrt(avg_cell_size)
+                sigma = np.max([10, 16 * np.log(avg_grid_space) - 30]) # formula fitted to trial and error results
+                sample_dist = np.max([2, 2 * np.log(avg_grid_space) - 3])
+                print(avg_cell_size, avg_grid_space, sigma, sample_dist)
                 geom = feature.geometry()
                 ogr_geom = ogr.CreateGeometryFromWkb(geom.asWkb())
-                ogr_geom_smooth = polygon_gaussian_smooth(ogr_geom, sigma=10, sample_dist=2)
+                ogr_geom_smooth = polygon_gaussian_smooth(ogr_geom, sigma=sigma, sample_dist=sample_dist)
                 qgs_geom_smooth = QgsGeometry()
                 qgs_geom_smooth.fromWkb(ogr_geom_smooth.ExportToWkb())
                 self.result_catchment_layer.changeGeometry(feature.id(), qgs_geom_smooth)

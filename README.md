@@ -91,6 +91,7 @@ If you want to delete the results you have generated so far, the button 'clear r
 
 ## Algorithm
 _TBD_
+Please note: pumplines (pumping stations that pump from one location in the model to another) are not taken into account in the network analysis. 
 
 
 
