@@ -91,8 +91,11 @@ If you want to delete the results you have generated so far, the button 'clear r
 
 ## Algorithm
 _TBD_
-Please note: pumplines (pumping stations that pump from one location in the model to another) are not taken into account in the network analysis. 
 
+### Please note
+* Pumplines (pumping stations that pump from one location in the model to another) are not taken into account in the network analysis. 
+* Interflow is not taken into account in the network analysis
+* Groundwater flow is taken into account but has not been tested yet, please check the results
 
 
 
