@@ -114,6 +114,9 @@
              <property name="enabled">
               <bool>true</bool>
              </property>
+             <property name="toolTip">
+              <string>Required only when analysing (impervious) surfaces (0D inflow)</string>
+             </property>
              <property name="text">
               <string>3Di model sqlite (optional):</string>
              </property>

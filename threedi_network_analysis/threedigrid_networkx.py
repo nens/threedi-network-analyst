@@ -243,11 +243,11 @@ class Graph3Di:
     def _upstream_or_downstream_flowlines(self, target_node_ids, upstream: bool):
         print('_upstream_or_downstream_flowlines')
         nodes = self._upstream_or_downstream_nodes(target_node_ids=target_node_ids, upstream=upstream)
+        nodes.update(set(target_node_ids))
         edges = self.graph.subgraph(nodes=nodes).edges.data('id')
         flowline_ids = [edge[2] for edge in edges]
         print('flowline_ids:')
         print(flowline_ids)
-        # flowlines = self.lines_subset.filter(id__in=flowline_ids)
         return flowline_ids
 
     def upstream_flowlines(self, target_node_ids):

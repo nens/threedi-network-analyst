@@ -336,7 +336,7 @@ class Graph3DiQgsConnector:
     def create_or_replace_target_node_layer(self):
         self.remove_target_node_layer()
         if isinstance(self.gr, GridH5ResultAdmin):
-            nodes = self.gr.nodes.subset("2D_ALL")
+            nodes = self.gr.nodes # .subset("2D_ALL")
             nodes_ds = MEMORY_DRIVER.CreateDataSource('')
             attributes = {'result_sets': [''] * nodes.count}
             attr_data_types = {'result_sets': ogr.OFTString}
@@ -651,6 +651,7 @@ class Graph3DiQgsConnector:
             print('adding features to impervious surface layer failed')
         self.impervious_surface_layer.commitChanges()
         self.impervious_surface_layer.updateExtents()
+        self.impervious_surface_layer.triggerRepaint()
 
     def clear_impervious_surface_layer(self):
         """Remove all features from layer"""
@@ -683,37 +684,46 @@ class Graph3DiQgsConnector:
         # catchments
         # not needed, because bbox of catchments < bbox of cells
 
+        project_crs = QgsProject.instance().crs()
+        source_crs = QgsCoordinateReferenceSystem(f"EPSG:{self.epsg}")
+        transform = QgsCoordinateTransform(source_crs, project_crs, QgsProject.instance())
+        impervious_surface_crs = QgsCoordinateReferenceSystem(f"EPSG:4326")
+        impervious_surface_transform = QgsCoordinateTransform(impervious_surface_crs,
+                                                              project_crs,
+                                                              QgsProject.instance())
+
         # cells
         if self.result_cell_layer is not None:
             features = self.result_cell_layer.getFeatures()
             cells_bbox = bbox_of_features(features=features)
             bbox = cells_bbox
+            transformed_bbox = transform.transformBoundingBox(bbox)
 
         # flowlines
         if self.result_flowline_layer is not None:
             features = self.result_flowline_layer.getFeatures()
             flowlines_bbox = bbox_of_features(features=features)
-            if bbox is None:
-                bbox = flowlines_bbox
-            elif flowlines_bbox is not None:
-                bbox.combineExtentWith(flowlines_bbox)
+            transformed_flowlines_bbox = transform.transformBoundingBox(flowlines_bbox)
+            if transformed_bbox is None:
+                transformed_bbox = transformed_flowlines_bbox
+            elif transformed_flowlines_bbox is not None:
+                transformed_bbox.combineExtentWith(transformed_flowlines_bbox)
 
         # impervious surfaces
         if self.impervious_surface_layer is not None:
             features = self.impervious_surface_layer.getFeatures()
             impervious_surface_bbox = bbox_of_features(features=features)
-            if bbox is None:
-                bbox = impervious_surface_bbox
-            elif impervious_surface_bbox is not None:
-                bbox.combineExtentWith(impervious_surface_bbox)
+            transformed_impervious_surface_bbox = impervious_surface_transform.transformBoundingBox(
+                impervious_surface_bbox
+            )
+            if transformed_bbox is None:
+                transformed_bbox = transformed_impervious_surface_bbox
+            elif transformed_impervious_surface_bbox is not None:
+                transformed_bbox.combineExtentWith(transformed_impervious_surface_bbox)
 
         if bbox is not None:
             bbox.scale(1.1)
-            project_crs = QgsProject.instance().crs()
-            source_crs = QgsCoordinateReferenceSystem(f"EPSG:{self.epsg}")
-            transform = QgsCoordinateTransform(source_crs, project_crs, QgsProject.instance())
-            projected_bbox = transform.transformBoundingBox(bbox)
-            self.canvas.setExtent(projected_bbox)
+            self.canvas.setExtent(transformed_bbox)
         return
 
     def clear_all(self):
