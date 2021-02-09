@@ -22,36 +22,33 @@
  ***************************************************************************/
 """
 
-# TODO Catchment id toevoegen aan impervious surface
 # TODO ResultSetAdmin implementeren
-# TODO pan to result set when browsing
 # TODO Analyzed target nodes behouden bij afsluiten plugin
 # TODO analyzed target nodes leegmaken bij clear ouputs
 
 # TODO: If source is polygon layer, transfer polygon id to result layers
 # TODO upstream catchment iets breder interpreteren (area of influence) door downstream nodes mee te nemen (successors)
-# TODO maptool eigen cursor symbooltje geven
-# TODO 1D nodes ook als target nodes laten selecteren
 # TODO mogelijkheid om van een pand op te vragen wat het downstream effect is
-# TODO: Make smoothing parameters depedent on cell size
 
 # TODO: Allow save and loading of result sets to a single geopackage incl. styling
 # TODO: There may be a problem if you analyse two result netcdfs with different epsg_code in the same session
 
 import pathlib
 from qgis.PyQt import QtGui, QtWidgets, uic
-from qgis.PyQt.QtCore import pyqtSignal, Qt
+from qgis.PyQt.QtCore import pyqtSignal, Qt, QVariant
 from qgis.core import (
     QgsProject,
     QgsFeatureRequest,
     QgsExpression,
     QgsMapLayer,
     QgsVectorLayer,
+    QgsFeature,
     QgsGeometry,
     QgsProcessingFeedback,
     QgsMapLayerProxyModel,
     QgsCoordinateReferenceSystem,
-    QgsCoordinateTransform
+    QgsCoordinateTransform,
+    QgsField
 )
 
 from qgis.gui import QgsMapToolIdentify
@@ -254,6 +251,7 @@ class Graph3DiQgsConnector:
         self.result_flowline_layer.setSubsetString(flowline_subset_string)
         self.target_node_layer.renderer().rootRule().children()[0].\
             setFilterExpression(target_node_layer_analyzed_nodes_rule_str)
+        self.impervious_surface_layer.setSubsetString(subset_string)
 
     def new_result_set_id(self):
         if len(self.result_sets) == 0:
@@ -621,6 +619,8 @@ class Graph3DiQgsConnector:
         self.result_catchment_layer.setSubsetString(saved_subsetstring)
 
     def create_impervious_surface_layer(self):
+        # This layer is different from the other result layers, because it is a copy of an existing layer from the spatialite
+        # It is easier to copy the layer using the QGIS API
         self.impervious_surface_source_layer = QgsVectorLayer(
             path=str(self.sqlite) + '|layername=v2_impervious_surface',
             baseName='v2_impervious_surface',
@@ -628,6 +628,8 @@ class Graph3DiQgsConnector:
         )
 
         fields = self.impervious_surface_source_layer.fields().toList()
+        catchment_id_field = QgsField('catchment_id', QVariant.Int)
+        fields.append(catchment_id_field)
         self.impervious_surface_layer = QgsVectorLayer('Polygon', 'Impervious surface', 'memory')
         success = self.impervious_surface_layer.dataProvider().addAttributes(fields)
         self.impervious_surface_layer.updateFields()
@@ -636,20 +638,27 @@ class Graph3DiQgsConnector:
         self.impervious_surface_layer.loadNamedStyle(qml)
         self.add_locked_layer(self.impervious_surface_layer)
 
-    def append_impervious_surfaces(self, ids: List = None, expression: str = None):
+    def append_impervious_surfaces(self, result_set: int, ids: List = None, expression: str = None):
         """Copy features from the source v2_impervious_surface table to the result table
         impervious surfaces may be selected by ids or by expression. Expression overrules ids"""
-        # TODO add result set
         if expression is None:
             ids_str = ','.join(map(str, ids))
             expression = f'id IN ({ids_str})'
         self.impervious_surface_source_layer.setSubsetString(expression)
         features = self.impervious_surface_source_layer.getFeatures()
-        self.result_catchment_layer.startEditing()
         success = self.impervious_surface_layer.dataProvider().addFeatures(features)
         if not success:
             print('adding features to impervious surface layer failed')
-        self.impervious_surface_layer.commitChanges()
+
+        request = QgsFeatureRequest(QgsExpression('catchment_id IS NULL'))
+        added_features = self.impervious_surface_layer.getFeatures(request)
+        catchment_id_field_idx = self.impervious_surface_layer.dataProvider().fieldNameIndex('catchment_id')
+        attr_map = {feat.id(): {catchment_id_field_idx: result_set} for feat in added_features}
+        print(attr_map)
+        success = self.impervious_surface_layer.dataProvider().changeAttributeValues(attr_map)
+        if not success:
+            print('setting catchment_id of new impervious surface layer features failed')
+
         self.impervious_surface_layer.updateExtents()
         self.impervious_surface_layer.triggerRepaint()
 
@@ -677,10 +686,9 @@ class Graph3DiQgsConnector:
                                     WHERE connection_node_id IN ({connection_node_ids_str})
                                 ) """
             print(expression)
-            self.append_impervious_surfaces(expression=expression)
+            self.append_impervious_surfaces(result_set=result_set, expression=expression)
 
     def zoom_to_results(self):
-        # TODO project bbox to project crs
         # catchments
         # not needed, because bbox of catchments < bbox of cells
 
@@ -782,7 +790,9 @@ class CatchmentMapTool(QgsMapToolIdentify):
                 self.gq.find_cells(target_node_ids=[target_node_id], upstream=True, result_set=result_set)
                 self.gq.find_flowlines(target_node_ids=[target_node_id], upstream=True, result_set=result_set)
                 self.gq.find_impervious_surfaces(
-                    node_ids=list(self.gq.graph_3di.upstream_nodes(target_node_ids=[target_node_id])))
+                    node_ids=list(self.gq.graph_3di.upstream_nodes(target_node_ids=[target_node_id])),
+                    result_set=result_set
+                )
             if self.downstream:
                 self.gq.find_cells(target_node_ids=[target_node_id], upstream=False, result_set=result_set)
                 self.gq.find_flowlines(target_node_ids=[target_node_id], upstream=False, result_set=result_set)
@@ -943,7 +953,9 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 self.gq.find_cells(selected_node_ids, True, result_set=result_set)
                 self.gq.find_flowlines(target_node_ids=selected_node_ids, upstream=True, result_set=result_set)
                 self.gq.find_impervious_surfaces(
-                    node_ids=list(self.gq.graph_3di.upstream_nodes(target_node_ids=selected_node_ids)))
+                    node_ids=list(self.gq.graph_3di.upstream_nodes(target_node_ids=selected_node_ids)),
+                    result_set=result_set
+                )
             if self.checkBoxDownstream.isChecked():
                 self.gq.find_cells(selected_node_ids, False, result_set=result_set)
                 self.gq.find_flowlines(target_node_ids=selected_node_ids, upstream=False, result_set=result_set)
@@ -969,7 +981,9 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     self.gq.find_cells(target_node_ids, True, result_set=result_set)
                     self.gq.find_flowlines(target_node_ids=target_node_ids, upstream=True, result_set=result_set)
                     self.gq.find_impervious_surfaces(
-                        node_ids=list(self.gq.graph_3di.upstream_nodes(target_node_ids=target_node_ids)))
+                        node_ids=list(self.gq.graph_3di.upstream_nodes(target_node_ids=target_node_ids)),
+                        result_set=result_set
+                    )
                 if self.checkBoxDownstream.isChecked():
                     self.gq.find_cells(target_node_ids, False, result_set=result_set)
                     self.gq.find_flowlines(target_node_ids=target_node_ids, upstream=False, result_set=result_set)
