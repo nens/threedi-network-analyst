@@ -251,7 +251,8 @@ class Graph3DiQgsConnector:
         self.result_flowline_layer.setSubsetString(flowline_subset_string)
         self.target_node_layer.renderer().rootRule().children()[0].\
             setFilterExpression(target_node_layer_analyzed_nodes_rule_str)
-        self.impervious_surface_layer.setSubsetString(subset_string)
+        if self.impervious_surface_layer is not None:
+            self.impervious_surface_layer.setSubsetString(subset_string)
 
     def new_result_set_id(self):
         if len(self.result_sets) == 0:
@@ -641,6 +642,7 @@ class Graph3DiQgsConnector:
     def append_impervious_surfaces(self, result_set: int, ids: List = None, expression: str = None):
         """Copy features from the source v2_impervious_surface table to the result table
         impervious surfaces may be selected by ids or by expression. Expression overrules ids"""
+        max_fid_before = self.impervious_surface_layer.dataProvider().featureCount()
         if expression is None:
             ids_str = ','.join(map(str, ids))
             expression = f'id IN ({ids_str})'
@@ -650,7 +652,7 @@ class Graph3DiQgsConnector:
         if not success:
             print('adding features to impervious surface layer failed')
 
-        request = QgsFeatureRequest(QgsExpression('catchment_id IS NULL'))
+        request = QgsFeatureRequest(QgsExpression(f'$id > {max_fid_before}'))
         added_features = self.impervious_surface_layer.getFeatures(request)
         catchment_id_field_idx = self.impervious_surface_layer.dataProvider().fieldNameIndex('catchment_id')
         attr_map = {feat.id(): {catchment_id_field_idx: result_set} for feat in added_features}
@@ -699,38 +701,53 @@ class Graph3DiQgsConnector:
         impervious_surface_transform = QgsCoordinateTransform(impervious_surface_crs,
                                                               project_crs,
                                                               QgsProject.instance())
+        transformed_bbox = None
+
+        # target nodes
+        if self.target_node_layer is not None:
+            request = QgsFeatureRequest(QgsExpression("result_sets != ''"))
+            features = self.target_node_layer.getFeatures(request)
+            nodes_bbox = bbox_of_features(features=features)
+            if nodes_bbox is not None:
+                transformed_bbox = transform.transformBoundingBox(nodes_bbox)
 
         # cells
         if self.result_cell_layer is not None:
             features = self.result_cell_layer.getFeatures()
             cells_bbox = bbox_of_features(features=features)
-            bbox = cells_bbox
-            transformed_bbox = transform.transformBoundingBox(bbox)
+            if cells_bbox is not None:
+                transformed_cells_bbox = transform.transformBoundingBox(cells_bbox)
+                if transformed_bbox is None:
+                    transformed_bbox = transformed_cells_bbox
+                elif transformed_cells_bbox is not None:
+                    transformed_bbox.combineExtentWith(transformed_cells_bbox)
 
         # flowlines
         if self.result_flowline_layer is not None:
             features = self.result_flowline_layer.getFeatures()
             flowlines_bbox = bbox_of_features(features=features)
-            transformed_flowlines_bbox = transform.transformBoundingBox(flowlines_bbox)
-            if transformed_bbox is None:
-                transformed_bbox = transformed_flowlines_bbox
-            elif transformed_flowlines_bbox is not None:
-                transformed_bbox.combineExtentWith(transformed_flowlines_bbox)
+            if flowlines_bbox is not None:  # layer exists but no contains no features
+                transformed_flowlines_bbox = transform.transformBoundingBox(flowlines_bbox)
+                if transformed_bbox is None:
+                    transformed_bbox = transformed_flowlines_bbox
+                elif transformed_flowlines_bbox is not None:
+                    transformed_bbox.combineExtentWith(transformed_flowlines_bbox)
 
         # impervious surfaces
         if self.impervious_surface_layer is not None:
             features = self.impervious_surface_layer.getFeatures()
             impervious_surface_bbox = bbox_of_features(features=features)
-            transformed_impervious_surface_bbox = impervious_surface_transform.transformBoundingBox(
-                impervious_surface_bbox
-            )
-            if transformed_bbox is None:
-                transformed_bbox = transformed_impervious_surface_bbox
-            elif transformed_impervious_surface_bbox is not None:
-                transformed_bbox.combineExtentWith(transformed_impervious_surface_bbox)
+            if impervious_surface_bbox is not None:
+                transformed_impervious_surface_bbox = impervious_surface_transform.transformBoundingBox(
+                    impervious_surface_bbox
+                )
+                if transformed_bbox is None:
+                    transformed_bbox = transformed_impervious_surface_bbox
+                elif transformed_impervious_surface_bbox is not None:
+                    transformed_bbox.combineExtentWith(transformed_impervious_surface_bbox)
 
-        if bbox is not None:
-            bbox.scale(1.1)
+        if transformed_bbox is not None:
+            transformed_bbox.scale(1.1)
             self.canvas.setExtent(transformed_bbox)
         return
 
