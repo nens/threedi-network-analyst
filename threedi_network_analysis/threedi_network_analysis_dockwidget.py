@@ -37,7 +37,9 @@ import pathlib
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal, Qt, QVariant
 from qgis.core import (
+    Qgis,
     QgsProject,
+    QgsDataSourceUri,
     QgsFeatureRequest,
     QgsExpression,
     QgsMapLayer,
@@ -86,18 +88,6 @@ def bbox_of_features(features: List):
         else:
             bbox.combineExtentWith(feat.geometry().boundingBox())
     return bbox
-
-
-class ResultSetAdmin:
-    """Keeps administration of all results that belong to a result set"""
-    def __init__(self, parent, id: int):
-        self.parent = parent
-        self.id = id
-        self._bbox = None
-
-    @property
-    def bbox(self):
-        return self._bbox
 
 
 class Graph3DiQgsConnector:
@@ -275,6 +265,7 @@ class Graph3DiQgsConnector:
 
     def clean_up_locked_layers(self):
         """For all locked layers, remove locks or layers themselves"""
+        remove_group = True
         try:
             if self.target_node_layer is not None:
                 QgsProject.instance().removeMapLayer(self.target_node_layer)
@@ -290,6 +281,7 @@ class Graph3DiQgsConnector:
                 else:
                     self.result_cell_layer.setFlags(
                         QgsMapLayer.Searchable | QgsMapLayer.Identifiable | QgsMapLayer.Removable)
+                    remove_group = False
         except AttributeError:
             pass
 
@@ -301,6 +293,7 @@ class Graph3DiQgsConnector:
                 else:
                     self.result_flowline_layer.setFlags(
                         QgsMapLayer.Searchable | QgsMapLayer.Identifiable | QgsMapLayer.Removable)
+                    remove_group = False
         except AttributeError:
             pass
 
@@ -312,6 +305,7 @@ class Graph3DiQgsConnector:
                 else:
                     self.result_catchment_layer.setFlags(
                         QgsMapLayer.Searchable | QgsMapLayer.Identifiable | QgsMapLayer.Removable)
+                    remove_group = False
         except AttributeError:
             pass
 
@@ -323,14 +317,21 @@ class Graph3DiQgsConnector:
                 else:
                     self.impervious_surface_layer.setFlags(
                         QgsMapLayer.Searchable | QgsMapLayer.Identifiable | QgsMapLayer.Removable)
+                    remove_group = False
         except AttributeError:
             pass
+
+        if remove_group:
+            self.remove_layer_group()
 
         self.canvas.refresh()
 
     def create_layer_group(self):
         root = QgsProject.instance().layerTreeRoot()
         self.layer_group = root.insertGroup(0, '3Di Network Analysis')
+
+    def remove_layer_group(self):
+        QgsProject.instance().layerTreeRoot().removeChildNode(self.layer_group)
 
     def create_or_replace_target_node_layer(self):
         self.remove_target_node_layer()
@@ -632,10 +633,12 @@ class Graph3DiQgsConnector:
         catchment_id_field = QgsField('catchment_id', QVariant.Int)
         fields.append(catchment_id_field)
         self.impervious_surface_layer = QgsVectorLayer('Polygon', 'Impervious surface', 'memory')
+        crs = QgsCoordinateReferenceSystem()
+        crs.createFromId(4326)
+        self.impervious_surface_layer.setCrs(crs)
         success = self.impervious_surface_layer.dataProvider().addAttributes(fields)
         self.impervious_surface_layer.updateFields()
-        qml = os.path.join(STYLE_DIR,
-                           'result_impervious_surfaces.qml')
+        qml = os.path.join(STYLE_DIR, 'result_impervious_surfaces.qml')
         self.impervious_surface_layer.loadNamedStyle(qml)
         self.add_locked_layer(self.impervious_surface_layer)
 
@@ -927,7 +930,20 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.update_gr()
 
     def sqlite_selected(self):
-        self.gq.sqlite = self.QgsFileWidgetSqlite.filePath()
+        uri = QgsDataSourceUri()
+        uri.setDatabase(self.QgsFileWidgetSqlite.filePath())
+        schema = ''
+        table = 'v2_impervious_surface'
+        geom_column = 'the_geom'
+        uri.setDataSource(schema, table, geom_column)
+
+        display_name = 'just for validity'
+        vlayer = QgsVectorLayer(uri.uri(), display_name, 'spatialite')
+        if vlayer.isValid():
+            self.gq.sqlite = self.QgsFileWidgetSqlite.filePath()
+        else:
+            self.iface.messageBar().pushMessage("Warning", "Invalid 3Di model sqlite selected", level=Qgis.Warning)
+            self.QgsFileWidgetSqlite.setFilePath('')
 
     def threshold_changed(self):
         self.gq.threshold = self.doubleSpinBoxThreshold.value()
