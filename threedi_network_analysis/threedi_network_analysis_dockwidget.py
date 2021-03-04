@@ -31,13 +31,20 @@
 # TODO mogelijkheid om van een pand op te vragen wat het downstream effect is
 
 # TODO: Allow save and loading of result sets to a single geopackage incl. styling
-# TODO: There may be a problem if you analyse two result netcdfs with different epsg_code in the same session
 
+# TODO: auto-Enable/disable buttons in Target Nodes and Outputs sections
+
+# TODO: handle removal of layer tree group
+
+from typing import Iterable
 import pathlib
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal, Qt, QVariant
 from qgis.core import (
     Qgis,
+    QgsApplication,
+    QgsTask,
+    QgsMessageLog,
     QgsProject,
     QgsDataSourceUri,
     QgsFeatureRequest,
@@ -70,12 +77,16 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
 STYLE_DIR = os.path.join(os.path.dirname(__file__), 'style')
 MEMORY_DRIVER = ogr.GetDriverByName('MEMORY')
 DEFAULT_THRESHOLD = 1
+MESSAGE_CATEGORY = '3Di Network Analysis'
 
 
 class LayerExistsError(Exception):
     """Raised when attempting to create a target_node_layer that already exists"""
     pass
 
+class FindImperviousSurfaceError(Exception):
+    """Raised when something goes wrong when finding impervious surfaces"""
+    pass
 
 def bbox_of_features(features: List):
     """Returns None if empty list is given as input"""
@@ -112,10 +123,11 @@ class Graph3DiQgsConnector:
         'from_polygon': ogr.OFTInteger
     }
 
-    def __init__(self, canvas):
+    def __init__(self, iface):
         """Constructor."""
         self._filter = None
-        self.canvas = canvas
+        self.iface = iface
+        self.canvas = iface.mapCanvas()
         self.epsg = None
         self.graph_3di = Graph3Di(subset=None)
         self._sqlite = None
@@ -130,11 +142,14 @@ class Graph3DiQgsConnector:
         self.result_sets = []
         self.dissolved_result_sets = []
         self.smooth_result_catchments = []
-        QgsProject.instance().cleared.connect(self.clean_up_locked_layers)
+        QgsProject.instance().cleared.connect(self.remove_empty_layers)
+        QgsProject.instance().layersWillBeRemoved.connect(self.qgs_project_layers_will_be_removed)
+        self.protect_layers = True
 
     def __del__(self):
-        self.clean_up_locked_layers()
-        QgsProject.instance().cleared.disconnect(self.clean_up_locked_layers)
+        self.remove_empty_layers()
+        QgsProject.instance().cleared.disconnect(self.remove_empty_layers)
+        QgsProject.instance().layersWillBeRemoved.disconnect(self.qgs_project_layers_will_be_removed)
 
     @property
     def gr(self):
@@ -142,16 +157,9 @@ class Graph3DiQgsConnector:
 
     @gr.setter
     def gr(self, value):
+        # ! Do not use any QObject that lives on the main thread here, because this setter is called from a QgsTask
+        # See https://docs.qgis.org/testing/en/docs/pyqgis_developer_cookbook/tasks.html
         self.graph_3di.gr = value
-        if isinstance(self.graph_3di.gr, GridH5ResultAdmin):
-            self.epsg = int(self.graph_3di.gr.epsg_code)
-            self.create_layer_group()
-            # Note: the sequence is deliberate; the target nodes are below the result layers because otherwise, if \
-            # zoomed out too much, the target nodes will cover the result.
-            self.create_or_replace_target_node_layer()
-            self.create_result_cell_layer()
-            self.create_result_flowline_layer()
-            self.create_catchment_layer()
 
     @property
     def sqlite(self):
@@ -223,6 +231,64 @@ class Graph3DiQgsConnector:
         else:
             return None
 
+    def qgs_project_layers_will_be_removed(self, layer_ids):
+        if self.protect_layers:
+            layer_replaced = False
+            try:
+                if self.target_node_layer is not None:
+                    if self.target_node_layer.id() in layer_ids:
+                        self.target_node_layer = None
+                        self.create_target_node_layer()
+                        layer_replaced = True
+            except AttributeError:
+                pass
+
+            try:
+                if self.result_cell_layer is not None:
+                    if self.result_cell_layer.id() in layer_ids:
+                        self.result_cell_layer = None
+                        self.create_result_cell_layer()
+                        layer_replaced = True
+            except AttributeError:
+                pass
+
+            try:
+                if self.result_flowline_layer is not None:
+                    if self.result_flowline_layer.id() in layer_ids:
+                        self.result_flowline_layer = None
+                        self.create_result_flowline_layer()
+                        layer_replaced = True
+            except AttributeError:
+                pass
+
+            try:
+                if self.result_catchment_layer is not None:
+                    if self.result_catchment_layer.id() in layer_ids:
+                        self.result_catchment_layer = None
+                        self.create_catchment_layer()
+                        layer_replaced = True
+            except AttributeError:
+                pass
+
+            try:
+                if self.impervious_surface_layer is not None:
+                    if self.impervious_surface_layer.id() in layer_ids:
+                        self.impervious_surface_layer = None
+                        self.create_impervious_surface_layer()
+                        layer_replaced = True
+            except AttributeError:
+                pass
+
+            if layer_replaced:
+                self.iface.messageBar().pushMessage(
+                    "3Di Network Analysis",
+                    "Oops, I needed the layer(s) you deleted! I created them again",
+                    Qgis.Info
+                )
+            # self.protect_layers = False
+            # self.refill_layer_group()
+            # self.protect_layers = True
+
     def update_layer_filters(self):
         filtered_ids = set(self.result_sets) & set(self.filter if self.filter is not None else self.result_sets)
         filtered_ids_str = ','.join(map(str, filtered_ids))
@@ -236,7 +302,6 @@ class Graph3DiQgsConnector:
 
         flowline_subset_string = ' AND '.join(filter(None, [subset_string, 'kcu != 100'])) # filter to leave subset_string out if empty
         self.result_catchment_layer.setSubsetString(subset_string)
-        print(f'filter(): result catchment layer filter set to {subset_string}')
         self.result_cell_layer.setSubsetString(subset_string)
         self.result_flowline_layer.setSubsetString(flowline_subset_string)
         self.target_node_layer.renderer().rootRule().children()[0].\
@@ -251,36 +316,39 @@ class Graph3DiQgsConnector:
             self.result_sets.append(max(self.result_sets) + 1)
         return max(self.result_sets)
 
-    def add_locked_layer(self, layer, add_to_layer_tree=True):
-        """
-        Add a layer to the layer tree that cannot be removed by the user
+    def gr_updated(self):
+        """Executed when a new 3Di result is selected (self.gr is changed)"""
+        if isinstance(self.graph_3di.gr, GridH5ResultAdmin):
+            self.epsg = int(self.graph_3di.gr.epsg_code)
+            self.create_layer_group()
+            # Note: the sequence is deliberate; the target nodes are below the result layers because otherwise, if \
+            # zoomed out too much, the target nodes will cover the result.
+            self.create_target_node_layer()
+            self.create_result_cell_layer()
+            self.create_result_flowline_layer()
+            self.create_catchment_layer()
 
-        :param layer: layer to add
+    def add_to_layer_tree_group(self, layer):
+        """
+        Add a layer to the 3Di Network Analysis layer tree group
         """
         project = QgsProject.instance()
         project.addMapLayer(layer, addToLegend=False)
-        if add_to_layer_tree:
-            self.layer_group.insertLayer(0, layer)
-        layer.setFlags(QgsMapLayer.Searchable | QgsMapLayer.Identifiable)
+        self.layer_group.insertLayer(0, layer)
 
-    def clean_up_locked_layers(self):
+    def remove_empty_layers(self):
         """For all locked layers, remove locks or layers themselves"""
         remove_group = True
         try:
-            if self.target_node_layer is not None:
-                QgsProject.instance().removeMapLayer(self.target_node_layer)
-                del self.target_node_layer
+            self.remove_target_node_layer()
         except AttributeError:
             pass
 
         try:
             if self.result_cell_layer is not None:
                 if self.result_cell_layer.featureCount() == 0:
-                    QgsProject.instance().removeMapLayer(self.result_cell_layer)
-                    del self.result_cell_layer
+                    self.remove_result_cell_layer()
                 else:
-                    self.result_cell_layer.setFlags(
-                        QgsMapLayer.Searchable | QgsMapLayer.Identifiable | QgsMapLayer.Removable)
                     remove_group = False
         except AttributeError:
             pass
@@ -288,11 +356,8 @@ class Graph3DiQgsConnector:
         try:
             if self.result_flowline_layer is not None:
                 if self.result_flowline_layer.featureCount() == 0:
-                    QgsProject.instance().removeMapLayer(self.result_flowline_layer)
-                    del self.result_flowline_layer
+                    self.remove_result_flowline_layer()
                 else:
-                    self.result_flowline_layer.setFlags(
-                        QgsMapLayer.Searchable | QgsMapLayer.Identifiable | QgsMapLayer.Removable)
                     remove_group = False
         except AttributeError:
             pass
@@ -300,11 +365,8 @@ class Graph3DiQgsConnector:
         try:
             if self.result_catchment_layer is not None:
                 if self.result_catchment_layer.featureCount() == 0:
-                    QgsProject.instance().removeMapLayer(self.result_catchment_layer)
-                    del self.result_catchment_layer
+                    self.remove_catchment_layer()
                 else:
-                    self.result_catchment_layer.setFlags(
-                        QgsMapLayer.Searchable | QgsMapLayer.Identifiable | QgsMapLayer.Removable)
                     remove_group = False
         except AttributeError:
             pass
@@ -312,11 +374,8 @@ class Graph3DiQgsConnector:
         try:
             if self.impervious_surface_layer is not None:
                 if self.impervious_surface_layer.featureCount() == 0:
-                    QgsProject.instance().removeMapLayer(self.impervious_surface_layer)
-                    del self.impervious_surface_layer
+                    self.remove_impervious_surface_layer()
                 else:
-                    self.impervious_surface_layer.setFlags(
-                        QgsMapLayer.Searchable | QgsMapLayer.Identifiable | QgsMapLayer.Removable)
                     remove_group = False
         except AttributeError:
             pass
@@ -330,13 +389,29 @@ class Graph3DiQgsConnector:
         root = QgsProject.instance().layerTreeRoot()
         self.layer_group = root.insertGroup(0, '3Di Network Analysis')
 
+    # Commented out because this causes an infinite loop and I have not found any way to prevent that
+    # def refill_layer_group(self):
+    #     """Remove all layers from the group and add them again in the correct order"""
+    #     for lyr in [
+    #         self.target_node_layer,
+    #         self.result_cell_layer,
+    #         self.result_flowline_layer,
+    #         self.result_catchment_layer,
+    #         self.impervious_surface_layer
+    #     ]:
+    #         try:
+    #             if lyr is not None:
+    #                 self.layer_group.removeLayer(lyr)
+    #                 self.layer_group.insertLayer(0, lyr)
+    #         except AttributeError:
+    #             continue
+
     def remove_layer_group(self):
         QgsProject.instance().layerTreeRoot().removeChildNode(self.layer_group)
 
-    def create_or_replace_target_node_layer(self):
-        self.remove_target_node_layer()
+    def create_target_node_layer(self):
         if isinstance(self.gr, GridH5ResultAdmin):
-            nodes = self.gr.nodes # .subset("2D_ALL")
+            nodes = self.gr.nodes
             nodes_ds = MEMORY_DRIVER.CreateDataSource('')
             attributes = {'result_sets': [''] * nodes.count}
             attr_data_types = {'result_sets': ogr.OFTString}
@@ -348,8 +423,7 @@ class Graph3DiQgsConnector:
             self.target_node_layer = as_qgis_memory_layer(ogr_lyr, 'Target nodes')
             qml = os.path.join(STYLE_DIR, 'target_nodes.qml')
             self.target_node_layer.loadNamedStyle(qml)
-            self.add_locked_layer(self.target_node_layer)
-            # TODO Add to group, put group on top of target_node_layer tree
+            self.add_to_layer_tree_group(self.target_node_layer)
 
     def clear_target_node_layer(self):
         """Empty the result_set field of all features in the target_node_layer"""
@@ -365,8 +439,10 @@ class Graph3DiQgsConnector:
     def remove_target_node_layer(self):
         try:
             if self.target_node_layer is not None:
+                self.protect_layers = False
                 project = QgsProject.instance()
                 project.removeMapLayer(self.target_node_layer)
+                self.protect_layers = True
         except AttributeError:
             pass
         self.target_node_layer = None
@@ -390,23 +466,20 @@ class Graph3DiQgsConnector:
         self.result_cell_layer = as_qgis_memory_layer(ogr_lyr, qgs_lyr_name)
         qml = os.path.join(STYLE_DIR, 'result_cells.qml')
         self.result_cell_layer.loadNamedStyle(qml)
-        self.add_locked_layer(self.result_cell_layer)
+        self.add_to_layer_tree_group(self.result_cell_layer)
 
     def update_analyzed_target_cells(self, target_node_ids, result_set):
         ids_str = ','.join(map(str, target_node_ids))
         expression_str = f'id IN ({ids_str})'
-        print(expression_str)
         request = QgsFeatureRequest()
         request.setFilterExpression(f'id IN ({ids_str})')
         idx = self.target_node_layer.fields().indexFromName('result_sets')
         self.target_node_layer.startEditing()
         for feat in self.target_node_layer.getFeatures(request):
-            print(f"update target node {feat['id']} with fid {feat.id()}")
             old_result_sets = feat['result_sets']
             result_sets_list = old_result_sets.split(',')
             result_sets_list.append(result_set)
             new_result_sets = ','.join(map(str, result_sets_list))
-            print(f'new result sets string = {new_result_sets}')
             self.target_node_layer.changeAttributeValue(feat.id(), idx, new_result_sets)
         self.target_node_layer.commitChanges()
         self.update_layer_filters()
@@ -450,7 +523,7 @@ class Graph3DiQgsConnector:
                            )
         layer = ds.GetLayerByName('cell')
         append_to_qgs_vector_layer(ogr_layer=layer, qgs_vector_layer=self.result_cell_layer)
-        self.result_cell_layer.triggerRepaint()
+
 
     def clear_result_cell_layer(self):
         """Remove all features from layer that contains the upstream and/or downstream cells"""
@@ -460,8 +533,10 @@ class Graph3DiQgsConnector:
     def remove_result_cell_layer(self):
         """Remove layer that contains the upstream and/or downstream cells"""
         if self.result_cell_layer is not None:
+            self.protect_layers = False
             QgsProject.instance().removeMapLayer(self.result_cell_layer)
             self.result_cell_layer = None
+            self.protect_layers = True
 
     def create_result_flowline_layer(self):
         try:
@@ -482,18 +557,13 @@ class Graph3DiQgsConnector:
         self.result_flowline_layer = as_qgis_memory_layer(ogr_lyr, qgs_lyr_name)
         qml = os.path.join(STYLE_DIR, 'result_flowlines.qml')
         self.result_flowline_layer.loadNamedStyle(qml)
-        self.add_locked_layer(self.result_flowline_layer)
+        self.add_to_layer_tree_group(self.result_flowline_layer)
         self.result_flowline_layer.setSubsetString('kcu != 100')
 
-    def find_flowlines(self, target_node_ids: List, upstream: bool, result_set: int):
-        """Find flowlines upstream or downstream from the list of target nodes \
+    def find_flowlines(self, node_ids: List, upstream: bool, result_set: int):
+        """Find flowlines that connect the input nodes \
         and append them to the result flowline layer"""
-        # TODO make a function that takes a list of result nodes as input
-        print('find_flowlines called')
-        if upstream:
-            flowlines_ids = self.graph_3di.upstream_flowlines(target_node_ids)
-        else:
-            flowlines_ids = self.graph_3di.downstream_flowlines(target_node_ids)
+        flowlines_ids = self.graph_3di.flowlines_between_nodes(node_ids=node_ids)
         self.append_result_flowlines(flowline_ids=flowlines_ids, upstream=upstream, result_set=result_set)
 
     def append_result_flowlines(self, flowline_ids, upstream: bool, result_set: int):
@@ -520,7 +590,6 @@ class Graph3DiQgsConnector:
                            )
         layer = ds.GetLayerByName('flowline')
         append_to_qgs_vector_layer(ogr_layer=layer, qgs_vector_layer=self.result_flowline_layer)
-        self.result_flowline_layer.triggerRepaint()
 
     def clear_result_flowline_layer(self):
         """Remove all features from layer that contains the upstream and/or downstream flowlines"""
@@ -529,9 +598,11 @@ class Graph3DiQgsConnector:
 
     def remove_result_flowline_layer(self):
         """Remove layer that contains the upstream and/or downstream flowlines"""
-        if self.result_cell_layer is not None:
-            QgsProject.instance().removeMapLayer(self.result_cell_layer)
-            self.result_cell_layer = None
+        if self.result_flowline_layer is not None:
+            self.protect_layers = False
+            QgsProject.instance().removeMapLayer(self.result_flowline_layer)
+            self.result_flowline_layer = None
+            self.protect_layers = True
 
     def create_catchment_layer(self):
         try:
@@ -554,7 +625,7 @@ class Graph3DiQgsConnector:
         qml = os.path.join(STYLE_DIR,
                            'result_catchments.qml')
         self.result_catchment_layer.loadNamedStyle(qml)
-        self.add_locked_layer(self.result_catchment_layer)
+        self.add_to_layer_tree_group(self.result_catchment_layer)
 
     def clear_catchment_layer(self):
         """Remove all features from layer that contains the upstream and/or downstream cells"""
@@ -570,8 +641,6 @@ class Graph3DiQgsConnector:
         non_dissolved_ids_str = ','.join(map(str, non_dissolved_ids))
         subset_string = 'catchment_id IN ({})'.format(non_dissolved_ids_str)
         self.result_cell_layer.setSubsetString(subset_string)
-        # saved_filter = self.filter
-        # self.filter = list(set(self.result_sets) - set(self.dissolved_result_sets))
 
         feedback = QgsProcessingFeedback()
         dslv_params = {
@@ -597,7 +666,6 @@ class Graph3DiQgsConnector:
         self.result_catchment_layer.triggerRepaint()
         self.result_cell_layer.setSubsetString(saved_subsetstring)
         self.result_catchment_layer.featureAdded.emit(self.result_catchment_layer.featureCount())
-        # self.result_cell_layer.triggerRepaint()
 
     def smooth_catchment_layer(self):
         saved_subsetstring = self.result_catchment_layer.subsetString()
@@ -609,7 +677,6 @@ class Graph3DiQgsConnector:
                 avg_grid_space = np.sqrt(avg_cell_size)
                 sigma = np.max([10, 16 * np.log(avg_grid_space) - 30]) # formula fitted to trial and error results
                 sample_dist = np.max([2, 2 * np.log(avg_grid_space) - 3])
-                print(avg_cell_size, avg_grid_space, sigma, sample_dist)
                 geom = feature.geometry()
                 ogr_geom = ogr.CreateGeometryFromWkb(geom.asWkb())
                 ogr_geom_smooth = polygon_gaussian_smooth(ogr_geom, sigma=sigma, sample_dist=sample_dist)
@@ -619,6 +686,14 @@ class Graph3DiQgsConnector:
             self.smooth_result_catchments.append(feature.id())
         self.result_catchment_layer.commitChanges()
         self.result_catchment_layer.setSubsetString(saved_subsetstring)
+
+    def remove_catchment_layer(self):
+        """Remove layer that contains the upstream and/or downstream catchments"""
+        if self.result_catchment_layer is not None:
+            self.protect_layers = False
+            QgsProject.instance().removeMapLayer(self.result_catchment_layer)
+            self.result_catchment_layer = None
+            self.protect_layers = True
 
     def create_impervious_surface_layer(self):
         # This layer is different from the other result layers, because it is a copy of an existing layer from the spatialite
@@ -640,7 +715,7 @@ class Graph3DiQgsConnector:
         self.impervious_surface_layer.updateFields()
         qml = os.path.join(STYLE_DIR, 'result_impervious_surfaces.qml')
         self.impervious_surface_layer.loadNamedStyle(qml)
-        self.add_locked_layer(self.impervious_surface_layer)
+        self.add_to_layer_tree_group(self.impervious_surface_layer)
 
     def append_impervious_surfaces(self, result_set: int, ids: List = None, expression: str = None):
         """Copy features from the source v2_impervious_surface table to the result table
@@ -653,19 +728,16 @@ class Graph3DiQgsConnector:
         features = self.impervious_surface_source_layer.getFeatures()
         success = self.impervious_surface_layer.dataProvider().addFeatures(features)
         if not success:
-            print('adding features to impervious surface layer failed')
-
+            return False
         request = QgsFeatureRequest(QgsExpression(f'$id > {max_fid_before}'))
         added_features = self.impervious_surface_layer.getFeatures(request)
         catchment_id_field_idx = self.impervious_surface_layer.dataProvider().fieldNameIndex('catchment_id')
         attr_map = {feat.id(): {catchment_id_field_idx: result_set} for feat in added_features}
-        print(attr_map)
         success = self.impervious_surface_layer.dataProvider().changeAttributeValues(attr_map)
         if not success:
-            print('setting catchment_id of new impervious surface layer features failed')
-
+            return False
         self.impervious_surface_layer.updateExtents()
-        self.impervious_surface_layer.triggerRepaint()
+        return True
 
     def clear_impervious_surface_layer(self):
         """Remove all features from layer"""
@@ -675,8 +747,10 @@ class Graph3DiQgsConnector:
     def remove_impervious_surface_layer(self):
         """Remove layer that contains the upstream and/or downstream flowlines"""
         if self.impervious_surface_layer is not None:
+            self.protect_layers = False
             QgsProject.instance().removeMapLayer(self.impervious_surface_layer)
             self.impervious_surface_layer = None
+            self.protect_layers = True
 
     def find_impervious_surfaces(self, node_ids: List, result_set: int = None):
         """Find impervious surfaces connected to nodes \
@@ -690,8 +764,104 @@ class Graph3DiQgsConnector:
                                     FROM v2_impervious_surface_map 
                                     WHERE connection_node_id IN ({connection_node_ids_str})
                                 ) """
-            print(expression)
-            self.append_impervious_surfaces(result_set=result_set, expression=expression)
+            success = self.append_impervious_surfaces(result_set=result_set, expression=expression)
+            if not success:
+                raise FindImperviousSurfaceError()
+
+    def upstream_downstream_analysis(
+            self,
+            target_node_ids: Iterable,
+            upstream: bool,
+            downstream: bool
+    ):
+
+        progressMessageBar = self.iface.messageBar().createMessage("3Di Network Analysis is being performed...")
+        progress = QtWidgets.QProgressBar()
+        current_progress = 0
+        max_progress = 2
+        if upstream:
+            max_progress += 4
+        if downstream:
+            max_progress += 3
+        progress.setMaximum(max_progress)
+        progress.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        progressMessageBar.layout().addWidget(progress)
+        self.iface.messageBar().pushWidget(progressMessageBar, Qgis.Info)
+        self.iface.mainWindow().repaint()  # to show the message before the task starts
+
+        result_set = self.new_result_set_id()
+
+        if upstream:
+            upstream_node_ids = self.graph_3di.upstream_nodes(target_node_ids)
+            # upstream_node_ids -= set(target_node_ids) # remove the target nodes from the result
+            current_progress += 1
+            progress.setValue(current_progress)
+            print(f'{current_progress}/{max_progress}: upstream_node_ids identified')
+
+            self.append_result_cells(cell_ids=upstream_node_ids, upstream=True, result_set=result_set)
+            current_progress += 1
+            progress.setValue(current_progress)
+            print(f'{current_progress}/{max_progress}: upstream result cells appended')
+
+            upstream_node_ids.update(set(target_node_ids))
+            self.find_flowlines(node_ids=list(upstream_node_ids), upstream=True, result_set=result_set)
+            current_progress += 1
+            progress.setValue(current_progress)
+            print(f'{current_progress}/{max_progress}: upstream flowlines found')
+
+            try:
+                self.find_impervious_surfaces(
+                    node_ids=list(upstream_node_ids),
+                    result_set=result_set
+                )
+            except FindImperviousSurfaceError:
+                self.iface.messageBar().pushMessage(
+                    "3Di Network Analysis",
+                    "Something went wrong when finding impervious surfaces",
+                    Qgis.Warning
+                )
+            current_progress += 1
+            progress.setValue(current_progress)
+            print(f'{current_progress}/{max_progress}: impervious surfaces found')
+
+        if downstream:
+            downstream_node_ids = self.graph_3di.downstream_nodes(target_node_ids)
+            current_progress += 1
+            progress.setValue(current_progress)
+            print(f'{current_progress}/{max_progress}: downstream_node_ids identified')
+
+            # downstream_node_ids -= set(target_node_ids) # remove the target nodes from the result
+            self.append_result_cells(cell_ids=downstream_node_ids, upstream=False, result_set=result_set)
+            current_progress += 1
+            progress.setValue(current_progress)
+            print(f'{current_progress}/{max_progress}: downstream result cells appended')
+
+            downstream_node_ids.update(set(target_node_ids))
+            self.find_flowlines(node_ids=list(downstream_node_ids), upstream=False, result_set=result_set)
+            current_progress += 1
+            progress.setValue(current_progress)
+            print(f'{current_progress}/{max_progress}: downstream flowlines found')
+
+        self.dissolve_cells()
+        current_progress += 1
+        progress.setValue(current_progress)
+        print(f'{current_progress}/{max_progress}: cells dissolved')
+
+        self.smooth_catchment_layer()
+        current_progress += 1
+        progress.setValue(current_progress)
+        print(f'{current_progress}/{max_progress}: catchments smoothed')
+
+        self.result_cell_layer.triggerRepaint()
+        self.result_flowline_layer.triggerRepaint()
+        if self.impervious_surface_layer is not None:
+            self.impervious_surface_layer.triggerRepaint()
+        self.update_analyzed_target_cells(target_node_ids, result_set)
+        current_progress += 1
+        progress.setValue(current_progress)
+        print(f'{current_progress}/{max_progress}: finished')
+
+        self.iface.messageBar().clearWidgets()
 
     def zoom_to_results(self):
         # catchments
@@ -766,18 +936,20 @@ class Graph3DiQgsConnector:
 
 class CatchmentMapTool(QgsMapToolIdentify):
     def __init__(self,
+                 parent_widget,
+                 parent_button,
                  gq: Graph3DiQgsConnector,
                  upstream=False,
-                 downstream=False,
-                 parent_button=None
+                 downstream=False
                  ):
         super().__init__(gq.canvas)
         self.gq = gq
         self.upstream = upstream
         self.downstream = downstream
+        self.parent_widget = parent_widget
         self.parent_button = parent_button
         self.set_cursor()
-        print('Curious, init?')
+        self.tm = QgsApplication.taskManager()
 
     @property
     def upstream(self):
@@ -801,23 +973,14 @@ class CatchmentMapTool(QgsMapToolIdentify):
 
         identify_results = self.identify(x=int(x), y=int(y), layerList=[self.gq.target_node_layer])
         if len(identify_results) == 0:
-            pass
-            # TODO give user some gentle feedback that no node was clicked
+            self.parent_widget.iface.messageBar().pushMessage("3Di Network Analysis", "Please click on a target node", level=Qgis.Info)
         else:
-            result_set = self.gq.new_result_set_id()
             target_node_id = identify_results[0].mFeature.id()
-            if self.upstream:
-                self.gq.find_cells(target_node_ids=[target_node_id], upstream=True, result_set=result_set)
-                self.gq.find_flowlines(target_node_ids=[target_node_id], upstream=True, result_set=result_set)
-                self.gq.find_impervious_surfaces(
-                    node_ids=list(self.gq.graph_3di.upstream_nodes(target_node_ids=[target_node_id])),
-                    result_set=result_set
-                )
-            if self.downstream:
-                self.gq.find_cells(target_node_ids=[target_node_id], upstream=False, result_set=result_set)
-                self.gq.find_flowlines(target_node_ids=[target_node_id], upstream=False, result_set=result_set)
-            self.gq.dissolve_cells()
-            self.gq.smooth_catchment_layer()
+            self.gq.upstream_downstream_analysis(
+                target_node_ids=[target_node_id],
+                upstream=self.upstream,
+                downstream=self.downstream
+            )
 
     def activate(self):
         pass
@@ -839,15 +1002,11 @@ class CatchmentMapTool(QgsMapToolIdentify):
         cursor = QtGui.QCursor()
         cursor.setShape(Qt.CrossCursor)
         self.canvas().setCursor(cursor)
-        print("I really did try to change the cursor")
-        # utils.iface.iface.mainWindow().centralWidget().setCursor(cursor)
-        # QtGui.QApplication.instance().setOverrideCursor(cursor)
 
 
 class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     closingPlugin = pyqtSignal()
 
-    # TODO: auto-Enable/disable buttons in Target Nodes and Outputs sections
     def __init__(self, iface, parent=None, epsg=28992):
         """Constructor."""
         super(ThreeDiNetworkAnalystDockWidget, self).__init__(parent)
@@ -859,9 +1018,9 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.setupUi(self)
 
         self.iface = iface
-        self.gq = Graph3DiQgsConnector(canvas=self.iface.mapCanvas())
-        self.gq.start_time = 0  # initial value of widget is 0, so valueChanged() signal will not be emitted when ...
-        # ... a 3Di result is loaded for the first time
+        self.tm = QgsApplication.taskManager()
+        self.connect_gq()
+
         self.mMapLayerComboBoxTargetPolygons.setFilters(QgsMapLayerProxyModel.PolygonLayer)
 
         self.QgsFileWidget3DiResults.fileChanged.connect(self.results_3di_selected)
@@ -888,34 +1047,44 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.pushButtonClearResults.clicked.connect(self.pushbutton_clear_results_clicked)
 
     def closeEvent(self, event):
-        self.gq = None
-        self.unset_map_tool()
+        self.disconnect_gq()
         self.closingPlugin.emit()
         event.accept()
+
+    def connect_gq(self):
+        self.gq = Graph3DiQgsConnector(iface=self.iface)
+        self.gq.start_time = 0  # initial value of widget is 0, so valueChanged() signal will not be emitted when ...
+        # ... a 3Di result is loaded for the first time
+
+    def disconnect_gq(self):
+        QgsProject.instance().layersWillBeRemoved.disconnect(self.gq.qgs_project_layers_will_be_removed)
+        self.gq.remove_empty_layers()
+        self.gq = None
+        self.unset_map_tool()
 
     def update_gr(self):
         results_3di = self.QgsFileWidget3DiResults.filePath()
         gridadmin = self.QgsFileWidgetGridAdmin.filePath()
         if os.path.isfile(results_3di) and os.path.isfile(gridadmin):
-            self.gq.gr = GridH5ResultAdmin(gridadmin, results_3di)
-            output_timestep_best_guess = int(self.gq.gr.nodes.timestamps[-1] / (len(self.gq.gr.nodes.timestamps) - 1))
-            start_time = 0
-            end_time = int(self.gq.gr.nodes.timestamps[-1])
-
-            self.doubleSpinBoxStartTime.setMaximum(end_time)
-            self.doubleSpinBoxStartTime.setSingleStep(output_timestep_best_guess)
-            self.doubleSpinBoxStartTime.setValue(start_time)
-            print(f'set start_time to {start_time} value from update_gr')
-
-            self.doubleSpinBoxEndTime.setMaximum(end_time)
-            self.doubleSpinBoxEndTime.setSingleStep(output_timestep_best_guess)
-            self.doubleSpinBoxEndTime.setValue(end_time)
-
-            if self.gq.result_catchment_layer.receivers(QgsVectorLayer.featureAdded) == 0:
-                self.gq.result_catchment_layer.featureAdded.connect(self.result_sets_count_changed)
-
-            if self.gq.result_catchment_layer.receivers(QgsVectorLayer.featuresDeleted) == 0:
-                self.gq.result_catchment_layer.featuresDeleted.connect(self.result_sets_count_changed)
+            self.disconnect_gq()
+            self.connect_gq()
+            gr = GridH5ResultAdmin(gridadmin, results_3di)
+            self.gq.end_time = int(gr.nodes.timestamps[-1])
+            if self.doubleSpinBoxThreshold.value() is not None:
+                self.gq.threshold = self.doubleSpinBoxThreshold.value()
+            else:
+                self.gq.threshold = DEFAULT_THRESHOLD
+            update_gr_task = UpdateGridAdminTask(
+                description='Preprocess 3Di Results for Network Analysis',
+                parent=self,
+                gr=gr
+            )
+            self.iface.messageBar().pushMessage(
+                '3Di Network Analysis',
+                'Started pre-processing simulation results',
+                Qgis.Info
+            )
+            self.tm.addTask(update_gr_task)
 
     def results_3di_selected(self):
         results_3di = self.QgsFileWidget3DiResults.filePath()
@@ -941,8 +1110,9 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         vlayer = QgsVectorLayer(uri.uri(), display_name, 'spatialite')
         if vlayer.isValid():
             self.gq.sqlite = self.QgsFileWidgetSqlite.filePath()
+            self.iface.messageBar().pushMessage("3Di Network Analysis", "Succesfully added impervious surfaces from model", level=Qgis.Success)
         else:
-            self.iface.messageBar().pushMessage("Warning", "Invalid 3Di model sqlite selected", level=Qgis.Warning)
+            self.iface.messageBar().pushMessage("3Di Network Analysis", "Invalid 3Di model sqlite selected", level=Qgis.Warning)
             self.QgsFileWidgetSqlite.setFilePath('')
 
     def threshold_changed(self):
@@ -950,7 +1120,6 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def start_time_changed(self):
         self.gq.start_time = self.doubleSpinBoxStartTime.value()
-        print(f'set gq.start_time to {self.doubleSpinBoxStartTime.value()} from start_time_changed()')
 
     def end_time_changed(self):
         self.gq.end_time = self.doubleSpinBoxEndTime.value()
@@ -966,10 +1135,11 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if self.pushButtonClickOnCanvas.isChecked() \
                 and self.gq.graph_3di.isready:
             self.catchment_map_tool = CatchmentMapTool(
+                parent_widget=self,
+                parent_button=self.pushButtonClickOnCanvas,
                 gq=self.gq,
                 upstream=self.checkBoxUpstream.isChecked(),
-                downstream=self.checkBoxDownstream.isChecked(),
-                parent_button=self.pushButtonClickOnCanvas
+                downstream=self.checkBoxDownstream.isChecked()
             )
             self.iface.mapCanvas().setMapTool(self.catchment_map_tool)
         else:
@@ -980,20 +1150,17 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for feature in self.gq.target_node_layer.getSelectedFeatures():
             selected_node_ids.append(feature.id())
 
-        if self.gq.graph_3di.isready:
-            result_set = self.gq.new_result_set_id()
-            if self.checkBoxUpstream.isChecked():
-                self.gq.find_cells(selected_node_ids, True, result_set=result_set)
-                self.gq.find_flowlines(target_node_ids=selected_node_ids, upstream=True, result_set=result_set)
-                self.gq.find_impervious_surfaces(
-                    node_ids=list(self.gq.graph_3di.upstream_nodes(target_node_ids=selected_node_ids)),
-                    result_set=result_set
+        if len(selected_node_ids) == 0:
+            self.iface.messageBar().pushMessage("3Di Network Analysis", "Please first select one or more target nodes", level=Qgis.Warning)
+        else:
+            if self.gq.graph_3di.isready:
+                self.gq.upstream_downstream_analysis(
+                    target_node_ids=selected_node_ids,
+                    upstream=self.checkBoxUpstream.isChecked(),
+                    downstream=self.checkBoxDownstream.isChecked()
                 )
-            if self.checkBoxDownstream.isChecked():
-                self.gq.find_cells(selected_node_ids, False, result_set=result_set)
-                self.gq.find_flowlines(target_node_ids=selected_node_ids, upstream=False, result_set=result_set)
-            self.gq.dissolve_cells()
-            self.gq.smooth_catchment_layer()
+            else:
+                self.iface.messageBar().pushMessage("3Di Network Analysis", "Please select 3Di results first", level=Qgis.Warning)
 
     def pushbutton_catchment_for_polygons_clicked(self):
         if self.gq.graph_3di.isready:
@@ -1005,23 +1172,16 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             for feat in polygon_features:
                 target_node_ids = []
                 geom = feat.geometry()
+                # TODO: Transform to correct crs
                 req = QgsFeatureRequest(geom.boundingBox())  # for performance
                 for point in self.gq.target_node_layer.getFeatures(req):
                     if geom.contains(point.geometry()):
                         target_node_ids.append(point.id())
-                result_set = self.gq.new_result_set_id()
-                if self.checkBoxUpstream.isChecked():
-                    self.gq.find_cells(target_node_ids, True, result_set=result_set)
-                    self.gq.find_flowlines(target_node_ids=target_node_ids, upstream=True, result_set=result_set)
-                    self.gq.find_impervious_surfaces(
-                        node_ids=list(self.gq.graph_3di.upstream_nodes(target_node_ids=target_node_ids)),
-                        result_set=result_set
-                    )
-                if self.checkBoxDownstream.isChecked():
-                    self.gq.find_cells(target_node_ids, False, result_set=result_set)
-                    self.gq.find_flowlines(target_node_ids=target_node_ids, upstream=False, result_set=result_set)
-            self.gq.dissolve_cells()
-            self.gq.smooth_catchment_layer()
+                self.gq.upstream_downstream_analysis(
+                    target_node_ids=target_node_ids,
+                    upstream=self.checkBoxUpstream.isChecked(),
+                    downstream=self.checkBoxDownstream.isChecked()
+                )
 
     def pushbutton_clear_results_clicked(self):
         self.gq.clear_all()
@@ -1055,16 +1215,12 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.iface.mapCanvas().refreshAllLayers()
 
     def spinbox_browse_result_sets_value_changed(self):
-        print('spinbox_browse_result_sets_value_changed called')
         if self.checkBoxBrowseResultSets.isChecked():
             self.gq.filter = [self.spinBoxBrowseResultSets.value()]
-            print(f'spinbox_browse_result_sets_value_changed(): filter set to {[self.spinBoxBrowseResultSets.value()]}')
-            print(f'spinbox_browse_result_sets_value_changed(): filter is now {self.gq.filter}')
             self.gq.zoom_to_results()
             self.iface.mapCanvas().refreshAllLayers()
 
     def result_sets_count_changed(self):
-        print('result_sets_count_changed called')
         if len(self.gq.result_sets) > 0:
             self.checkBoxBrowseResultSets.setEnabled(True)
             self.spinBoxBrowseResultSets.setMinimum(min(self.gq.result_sets))
@@ -1073,6 +1229,64 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.spinbox_browse_result_sets_value_changed()
         else:
             self.checkBoxBrowseResultSets.setEnabled(False)
+
+
+class UpdateGridAdminTask(QgsTask):
+
+    def __init__(self, description:str, parent: ThreeDiNetworkAnalystDockWidget, gr: GridH5ResultAdmin):
+        super().__init__(description, QgsTask.CanCancel)
+        self.exception = None
+        self.parent = parent
+        if not isinstance(gr, GridH5ResultAdmin):
+            raise TypeError
+        self.gr = gr
+        self.parent.setEnabled(False)
+        QgsMessageLog.logMessage("Started pre-processing simulation results", MESSAGE_CATEGORY, level=Qgis.Info)
+        self.parent.iface.mainWindow().repaint()  # to show the message before the task starts
+
+    def run(self):
+        try:
+            self.parent.gq.gr = self.gr
+            return True
+        except Exception as e:
+            self.exception = e
+
+        return False
+
+    def finished(self, result):
+        if self.exception is not None:
+            self.parent.setEnabled(True)
+            self.parent.widget().repaint()
+            raise self.exception
+        if result:
+            self.parent.gq.gr_updated()
+            output_timestep_best_guess = int(self.parent.gq.gr.nodes.timestamps[-1] / (len(self.parent.gq.gr.nodes.timestamps) - 1))
+            start_time = 0
+            end_time = int(self.parent.gq.gr.nodes.timestamps[-1])
+
+            self.parent.doubleSpinBoxStartTime.setMaximum(end_time)
+            self.parent.doubleSpinBoxStartTime.setSingleStep(output_timestep_best_guess)
+            self.parent.doubleSpinBoxStartTime.setValue(start_time)
+
+            self.parent.doubleSpinBoxEndTime.setMaximum(end_time)
+            self.parent.doubleSpinBoxEndTime.setSingleStep(output_timestep_best_guess)
+            self.parent.doubleSpinBoxEndTime.setValue(end_time)
+
+            if self.parent.gq.result_catchment_layer.receivers(QgsVectorLayer.featureAdded) == 0:
+                self.parent.gq.result_catchment_layer.featureAdded.connect(self.parent.result_sets_count_changed)
+
+            if self.parent.gq.result_catchment_layer.receivers(QgsVectorLayer.featuresDeleted) == 0:
+                self.parent.gq.result_catchment_layer.featuresDeleted.connect(self.parent.result_sets_count_changed)
+            self.parent.setEnabled(True)
+            QgsMessageLog.logMessage("Finished pre-processing simulation results", MESSAGE_CATEGORY, level=Qgis.Success)
+
+        else:
+            self.parent.setEnabled(True)
+            QgsMessageLog.logMessage("Failed pre-processing simulation results", MESSAGE_CATEGORY, level=Qgis.Critical)
+
+    def cancel(self):
+        QgsMessageLog.logMessage("Pre-processing simulation results cancelled by user", MESSAGE_CATEGORY, level=Qgis.Info)
+        super().cancel()
 
 
 def nearest_value(layer: QgsVectorLayer, fieldname: str, value: int, up: bool):

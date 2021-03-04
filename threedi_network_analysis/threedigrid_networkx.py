@@ -171,7 +171,7 @@ class Graph3Di:
                                              end_time=self.end_time,
                                              aggregation=self.aggregation)
             self._graph = None  # to prevent a mismatch between aggregate and graph
-            print('calculate aggregate succesfully performed')
+
         else:
             print('calculate aggregate not performed')
             print(f'gr type: {type(self.gr)}')
@@ -210,8 +210,6 @@ class Graph3Di:
     def _upstream_or_downstream_nodes(self, target_node_ids, upstream: bool):
         result_node_ids = set()
         for id_i in target_node_ids:
-            print(id_i)
-            print(type(id_i))
             if id_i in self.graph.nodes:
                 if upstream:
                     result_node_ids_i = nx.ancestors(self.graph, id_i)
@@ -240,18 +238,18 @@ class Graph3Di:
         """
         return self._upstream_or_downstream_nodes(target_node_ids=target_node_ids, upstream=False)
 
-    def _upstream_or_downstream_flowlines(self, target_node_ids, upstream: bool):
-        print('_upstream_or_downstream_flowlines')
-        nodes = self._upstream_or_downstream_nodes(target_node_ids=target_node_ids, upstream=upstream)
-        nodes.update(set(target_node_ids))
-        edges = self.graph.subgraph(nodes=nodes).edges.data('id')
+    def flowlines_between_nodes(self, node_ids):
+        """Return list of flowline ids that connect the input nodes"""
+        edges = self.graph.subgraph(nodes=node_ids).edges.data('id')
         flowline_ids = [edge[2] for edge in edges]
-        print('flowline_ids:')
-        print(flowline_ids)
         return flowline_ids
 
+    def _upstream_or_downstream_flowlines(self, target_node_ids, upstream: bool):
+        nodes = self._upstream_or_downstream_nodes(target_node_ids=target_node_ids, upstream=upstream)
+        nodes.update(set(target_node_ids))
+        return self.flowlines_between_nodes(nodes)
+
     def upstream_flowlines(self, target_node_ids):
-        print('upstream flowlines called')
         return self._upstream_or_downstream_flowlines(target_node_ids=target_node_ids, upstream=True)
 
     def downstream_flowlines(self, target_node_ids):

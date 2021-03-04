@@ -1,24 +1,18 @@
 <!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
-<qgis minScale="100000000" simplifyDrawingTol="1" simplifyMaxScale="1" simplifyLocal="1" version="3.14.16-Pi" maxScale="0" styleCategories="AllStyleCategories" simplifyDrawingHints="1" hasScaleBasedVisibilityFlag="0" simplifyAlgorithm="0" labelsEnabled="0" readOnly="0">
+<qgis simplifyDrawingTol="1" version="3.10.10-A Coruña" labelsEnabled="0" simplifyLocal="1" readOnly="0" simplifyDrawingHints="1" simplifyMaxScale="1" minScale="1e+08" simplifyAlgorithm="0" styleCategories="AllStyleCategories" hasScaleBasedVisibilityFlag="0" maxScale="0">
   <flags>
     <Identifiable>1</Identifiable>
-    <Removable>0</Removable>
+    <Removable>1</Removable>
     <Searchable>1</Searchable>
   </flags>
-  <temporal startField="" enabled="0" startExpression="" durationField="" durationUnit="min" fixedDuration="0" accumulate="0" mode="0" endField="" endExpression="">
-    <fixedRange>
-      <start></start>
-      <end></end>
-    </fixedRange>
-  </temporal>
-  <renderer-v2 symbollevels="0" forceraster="0" enableorderby="0" type="categorizedSymbol" attr="location">
+  <renderer-v2 forceraster="0" type="categorizedSymbol" attr="location" enableorderby="0" symbollevels="0">
     <categories>
-      <category value="upstream" symbol="0" render="true" label="Upstream"/>
-      <category value="downstream" symbol="1" render="true" label="Downstream"/>
+      <category render="true" value="upstream" symbol="0" label="Upstream"/>
+      <category render="true" value="downstream" symbol="1" label="Downstream"/>
     </categories>
     <symbols>
-      <symbol name="0" alpha="1" clip_to_extent="1" type="fill" force_rhr="0">
-        <layer locked="0" pass="0" enabled="1" class="SimpleFill">
+      <symbol alpha="1" clip_to_extent="1" name="0" force_rhr="0" type="fill">
+        <layer locked="0" enabled="1" pass="0" class="SimpleFill">
           <prop v="3x:0,0,0,0,0,0" k="border_width_map_unit_scale"/>
           <prop v="227,26,28,64" k="color"/>
           <prop v="bevel" k="joinstyle"/>
@@ -39,8 +33,8 @@
           </data_defined_properties>
         </layer>
       </symbol>
-      <symbol name="1" alpha="1" clip_to_extent="1" type="fill" force_rhr="0">
-        <layer locked="0" pass="0" enabled="1" class="SimpleFill">
+      <symbol alpha="1" clip_to_extent="1" name="1" force_rhr="0" type="fill">
+        <layer locked="0" enabled="1" pass="0" class="SimpleFill">
           <prop v="3x:0,0,0,0,0,0" k="border_width_map_unit_scale"/>
           <prop v="11,178,181,64" k="color"/>
           <prop v="bevel" k="joinstyle"/>
@@ -63,8 +57,8 @@
       </symbol>
     </symbols>
     <source-symbol>
-      <symbol name="0" alpha="1" clip_to_extent="1" type="fill" force_rhr="0">
-        <layer locked="0" pass="0" enabled="1" class="SimpleLine">
+      <symbol alpha="1" clip_to_extent="1" name="0" force_rhr="0" type="fill">
+        <layer locked="0" enabled="1" pass="0" class="SimpleLine">
           <prop v="square" k="capstyle"/>
           <prop v="5;2" k="customdash"/>
           <prop v="3x:0,0,0,0,0,0" k="customdash_map_unit_scale"/>
@@ -108,42 +102,13 @@
   <blendMode>0</blendMode>
   <featureBlendMode>0</featureBlendMode>
   <layerOpacity>1</layerOpacity>
-  <SingleCategoryDiagramRenderer attributeLegend="1" diagramType="Histogram">
-    <DiagramCategory spacingUnit="MM" backgroundAlpha="255" barWidth="5" lineSizeType="MM" rotationOffset="270" lineSizeScale="3x:0,0,0,0,0,0" height="15" sizeScale="3x:0,0,0,0,0,0" penWidth="0" penColor="#000000" direction="0" backgroundColor="#ffffff" opacity="1" scaleDependency="Area" showAxis="1" maxScaleDenominator="1e+08" spacing="5" diagramOrientation="Up" enabled="0" spacingUnitScale="3x:0,0,0,0,0,0" penAlpha="255" minScaleDenominator="0" sizeType="MM" labelPlacementMethod="XHeight" scaleBasedVisibility="0" width="15" minimumSize="0">
-      <fontProperties description="MS Shell Dlg 2,7.8,-1,5,50,0,0,0,0,0" style=""/>
+  <SingleCategoryDiagramRenderer diagramType="Histogram" attributeLegend="1">
+    <DiagramCategory lineSizeScale="3x:0,0,0,0,0,0" sizeScale="3x:0,0,0,0,0,0" diagramOrientation="Up" minimumSize="0" backgroundColor="#ffffff" scaleDependency="Area" labelPlacementMethod="XHeight" enabled="0" backgroundAlpha="255" scaleBasedVisibility="0" sizeType="MM" penWidth="0" width="15" penColor="#000000" penAlpha="255" lineSizeType="MM" opacity="1" barWidth="5" height="15" minScaleDenominator="0" rotationOffset="270" maxScaleDenominator="1e+08">
+      <fontProperties style="" description="MS Shell Dlg 2,7.8,-1,5,50,0,0,0,0,0"/>
       <attribute field="" color="#000000" label=""/>
-      <axisSymbol>
-        <symbol name="" alpha="1" clip_to_extent="1" type="line" force_rhr="0">
-          <layer locked="0" pass="0" enabled="1" class="SimpleLine">
-            <prop v="square" k="capstyle"/>
-            <prop v="5;2" k="customdash"/>
-            <prop v="3x:0,0,0,0,0,0" k="customdash_map_unit_scale"/>
-            <prop v="MM" k="customdash_unit"/>
-            <prop v="0" k="draw_inside_polygon"/>
-            <prop v="bevel" k="joinstyle"/>
-            <prop v="35,35,35,255" k="line_color"/>
-            <prop v="solid" k="line_style"/>
-            <prop v="0.26" k="line_width"/>
-            <prop v="MM" k="line_width_unit"/>
-            <prop v="0" k="offset"/>
-            <prop v="3x:0,0,0,0,0,0" k="offset_map_unit_scale"/>
-            <prop v="MM" k="offset_unit"/>
-            <prop v="0" k="ring_filter"/>
-            <prop v="0" k="use_custom_dash"/>
-            <prop v="3x:0,0,0,0,0,0" k="width_map_unit_scale"/>
-            <data_defined_properties>
-              <Option type="Map">
-                <Option value="" name="name" type="QString"/>
-                <Option name="properties"/>
-                <Option value="collection" name="type" type="QString"/>
-              </Option>
-            </data_defined_properties>
-          </layer>
-        </symbol>
-      </axisSymbol>
     </DiagramCategory>
   </SingleCategoryDiagramRenderer>
-  <DiagramLayerSettings obstacle="0" priority="0" zIndex="0" dist="0" placement="1" showAll="1" linePlacementFlags="18">
+  <DiagramLayerSettings placement="1" priority="0" showAll="1" obstacle="0" linePlacementFlags="18" dist="0" zIndex="0">
     <properties>
       <Option type="Map">
         <Option value="" name="name" type="QString"/>
@@ -152,7 +117,7 @@
       </Option>
     </properties>
   </DiagramLayerSettings>
-  <geometryOptions geometryPrecision="0" removeDuplicateNodes="0">
+  <geometryOptions removeDuplicateNodes="0" geometryPrecision="0">
     <activeChecks/>
     <checkConfiguration type="Map">
       <Option name="QgsGeometryGapCheck" type="Map">
@@ -162,8 +127,6 @@
       </Option>
     </checkConfiguration>
   </geometryOptions>
-  <referencedLayers/>
-  <referencingLayers/>
   <fieldConfiguration>
     <field name="id">
       <editWidget type="Range">
@@ -219,12 +182,12 @@
   <excludeAttributesWMS/>
   <excludeAttributesWFS/>
   <defaults>
-    <default expression="" field="id" applyOnUpdate="0"/>
-    <default expression="" field="node_type" applyOnUpdate="0"/>
-    <default expression="" field="node_type_description" applyOnUpdate="0"/>
-    <default expression="" field="location" applyOnUpdate="0"/>
-    <default expression="" field="catchment_id" applyOnUpdate="0"/>
-    <default expression="" field="from_polygon" applyOnUpdate="0"/>
+    <default field="id" expression="" applyOnUpdate="0"/>
+    <default field="node_type" expression="" applyOnUpdate="0"/>
+    <default field="node_type_description" expression="" applyOnUpdate="0"/>
+    <default field="location" expression="" applyOnUpdate="0"/>
+    <default field="catchment_id" expression="" applyOnUpdate="0"/>
+    <default field="from_polygon" expression="" applyOnUpdate="0"/>
   </defaults>
   <constraints>
     <constraint field="id" constraints="0" exp_strength="0" unique_strength="0" notnull_strength="0"/>
@@ -235,12 +198,12 @@
     <constraint field="from_polygon" constraints="0" exp_strength="0" unique_strength="0" notnull_strength="0"/>
   </constraints>
   <constraintExpressions>
-    <constraint desc="" field="id" exp=""/>
-    <constraint desc="" field="node_type" exp=""/>
-    <constraint desc="" field="node_type_description" exp=""/>
-    <constraint desc="" field="location" exp=""/>
-    <constraint desc="" field="catchment_id" exp=""/>
-    <constraint desc="" field="from_polygon" exp=""/>
+    <constraint field="id" exp="" desc=""/>
+    <constraint field="node_type" exp="" desc=""/>
+    <constraint field="node_type_description" exp="" desc=""/>
+    <constraint field="location" exp="" desc=""/>
+    <constraint field="catchment_id" exp="" desc=""/>
+    <constraint field="from_polygon" exp="" desc=""/>
   </constraintExpressions>
   <expressionfields/>
   <attributeactions>
@@ -248,13 +211,13 @@
   </attributeactions>
   <attributetableconfig actionWidgetStyle="dropDown" sortExpression="" sortOrder="0">
     <columns>
-      <column type="actions" width="-1" hidden="1"/>
-      <column name="id" type="field" width="-1" hidden="0"/>
-      <column name="catchment_id" type="field" width="-1" hidden="0"/>
-      <column name="from_polygon" type="field" width="-1" hidden="0"/>
-      <column name="location" type="field" width="-1" hidden="0"/>
-      <column name="node_type" type="field" width="-1" hidden="0"/>
-      <column name="node_type_description" type="field" width="-1" hidden="0"/>
+      <column hidden="1" width="-1" type="actions"/>
+      <column hidden="0" width="-1" name="id" type="field"/>
+      <column hidden="0" width="-1" name="catchment_id" type="field"/>
+      <column hidden="0" width="-1" name="from_polygon" type="field"/>
+      <column hidden="0" width="-1" name="location" type="field"/>
+      <column hidden="0" width="-1" name="node_type" type="field"/>
+      <column hidden="0" width="-1" name="node_type_description" type="field"/>
     </columns>
   </attributetableconfig>
   <conditionalstyles>
@@ -286,22 +249,21 @@ def my_form_open(dialog, layer, feature):
   <featformsuppress>0</featformsuppress>
   <editorlayout>generatedlayout</editorlayout>
   <editable>
-    <field editable="1" name="catchment_id"/>
-    <field editable="1" name="from_polygon"/>
-    <field editable="1" name="id"/>
-    <field editable="1" name="location"/>
-    <field editable="1" name="node_type"/>
-    <field editable="1" name="node_type_description"/>
+    <field name="catchment_id" editable="1"/>
+    <field name="from_polygon" editable="1"/>
+    <field name="id" editable="1"/>
+    <field name="location" editable="1"/>
+    <field name="node_type" editable="1"/>
+    <field name="node_type_description" editable="1"/>
   </editable>
   <labelOnTop>
-    <field labelOnTop="0" name="catchment_id"/>
-    <field labelOnTop="0" name="from_polygon"/>
-    <field labelOnTop="0" name="id"/>
-    <field labelOnTop="0" name="location"/>
-    <field labelOnTop="0" name="node_type"/>
-    <field labelOnTop="0" name="node_type_description"/>
+    <field name="catchment_id" labelOnTop="0"/>
+    <field name="from_polygon" labelOnTop="0"/>
+    <field name="id" labelOnTop="0"/>
+    <field name="location" labelOnTop="0"/>
+    <field name="node_type" labelOnTop="0"/>
+    <field name="node_type_description" labelOnTop="0"/>
   </labelOnTop>
-  <dataDefinedFieldProperties/>
   <widgets/>
   <previewExpression>"id"</previewExpression>
   <mapTip></mapTip>

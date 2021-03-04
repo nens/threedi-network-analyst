@@ -4,9 +4,9 @@
 
 [general]
 name=3Di Network Analyst
-qgisMinimumVersion=3.0
+qgisMinimumVersion=3.4
 description=Use network analysis for 3Di results
-version=0.1
+version=0.3.0
 author=Nelen & Schuurmans
 email=leendert.vanwolfswinkel@nelen-schuurmans.nl
 
