@@ -1007,7 +1007,7 @@ class CatchmentMapTool(QgsMapToolIdentify):
 class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     closingPlugin = pyqtSignal()
 
-    def __init__(self, iface, parent=None, epsg=28992):
+    def __init__(self, iface, parent=None):
         """Constructor."""
         super(ThreeDiNetworkAnalystDockWidget, self).__init__(parent)
         # Set up the user interface from Designer.
@@ -1165,6 +1165,10 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def pushbutton_catchment_for_polygons_clicked(self):
         if self.gq.graph_3di.isready:
             polygon_lyr = self.mMapLayerComboBoxTargetPolygons.currentLayer()
+            src_crs = polygon_lyr.crs()
+            tgt_crs = QgsCoordinateReferenceSystem(f"EPSG:{self.gq.epsg}")
+            tr = QgsCoordinateTransform(src_crs, tgt_crs, QgsProject.instance())
+
             if self.checkBoxSelectedPolygonsOnly.isChecked():
                 polygon_features = polygon_lyr.getSelectedFeatures()
             else:
@@ -1172,7 +1176,7 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             for feat in polygon_features:
                 target_node_ids = []
                 geom = feat.geometry()
-                # TODO: Transform to correct crs
+                geom.transform(tr)
                 req = QgsFeatureRequest(geom.boundingBox())  # for performance
                 for point in self.gq.target_node_layer.getFeatures(req):
                     if geom.contains(point.geometry()):
