@@ -22,19 +22,21 @@
  ***************************************************************************/
 """
 
-# TODO ResultSetAdmin implementeren
 # TODO Analyzed target nodes behouden bij afsluiten plugin
 # TODO analyzed target nodes leegmaken bij clear ouputs
 
 # TODO: If source is polygon layer, transfer polygon id to result layers
-# TODO upstream catchment iets breder interpreteren (area of influence) door downstream nodes mee te nemen (successors)
 # TODO mogelijkheid om van een pand op te vragen wat het downstream effect is
 
 # TODO: Allow save and loading of result sets to a single geopackage incl. styling
 
 # TODO: auto-Enable/disable buttons in Target Nodes and Outputs sections
 
-# TODO: handle removal of layer tree group
+# TODO: handle removal of layer tree group (make impossible)
+
+# TODO: add sub-categories to result flowline styling
+# TODO: add discharge (q net sum) attribute to result flowlines
+# TODO: add flow direction styling to result flowlines
 
 from typing import Iterable
 import pathlib
@@ -720,6 +722,8 @@ class Graph3DiQgsConnector:
     def append_impervious_surfaces(self, result_set: int, ids: List = None, expression: str = None):
         """Copy features from the source v2_impervious_surface table to the result table
         impervious surfaces may be selected by ids or by expression. Expression overrules ids"""
+        impervious_surface_layer_subset_string = self.impervious_surface_layer.subsetString()
+        self.impervious_surface_layer.setSubsetString('')
         max_fid_before = self.impervious_surface_layer.dataProvider().featureCount()
         if expression is None:
             ids_str = ','.join(map(str, ids))
@@ -737,6 +741,7 @@ class Graph3DiQgsConnector:
         if not success:
             return False
         self.impervious_surface_layer.updateExtents()
+        self.impervious_surface_layer.setSubsetString(impervious_surface_layer_subset_string)
         return True
 
     def clear_impervious_surface_layer(self):
@@ -1085,6 +1090,7 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 Qgis.Info
             )
             self.tm.addTask(update_gr_task)
+            self.iface.mainWindow().repaint()  # to show the message before the task starts
 
     def results_3di_selected(self):
         results_3di = self.QgsFileWidget3DiResults.filePath()
@@ -1246,7 +1252,6 @@ class UpdateGridAdminTask(QgsTask):
         self.gr = gr
         self.parent.setEnabled(False)
         QgsMessageLog.logMessage("Started pre-processing simulation results", MESSAGE_CATEGORY, level=Qgis.Info)
-        self.parent.iface.mainWindow().repaint()  # to show the message before the task starts
 
     def run(self):
         try:
