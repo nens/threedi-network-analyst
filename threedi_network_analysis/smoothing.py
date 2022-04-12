@@ -1,5 +1,5 @@
 import numpy as np
-import ogr
+from osgeo import ogr
 from scipy.ndimage import gaussian_filter1d
 
 ogr.UseExceptions()

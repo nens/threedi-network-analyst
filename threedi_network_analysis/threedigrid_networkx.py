@@ -31,7 +31,7 @@ import os
 # Third-party imports
 from threedigrid.admin.gridresultadmin import GridH5ResultAdmin
 
-import ogr
+from osgeo import ogr
 import numpy as np
 import networkx as nx
 from shapely.geometry import Polygon
