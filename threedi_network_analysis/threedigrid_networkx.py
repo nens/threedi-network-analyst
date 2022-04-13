@@ -22,7 +22,7 @@ README:
 """
 
 # System imports
-import os
+import numbers
 
 # Grid imports
 # from threedigrid.admin.gridresultadmin import GridH5ResultAdmin
@@ -58,13 +58,16 @@ class Graph3Di:
                  start_time: int = None,
                  end_time: int = None,
                  aggregation: Aggregation = Q_NET_SUM,
-                 threshold: float = 0):
+                 threshold: float = 0.):
         self._gr = gr
         self._subset = subset
         self._start_time = start_time
         self._end_time = end_time
         self._aggregation = aggregation
-        self._threshold = threshold
+        if threshold is None:
+            self._threshold = None
+        else:
+            self._threshold = float(threshold)
         self._aggregate = None
         self._graph = None
         self.calculate_aggregate()
@@ -136,8 +139,10 @@ class Graph3Di:
 
     @threshold.setter
     def threshold(self, threshold):
-        if isinstance(threshold, float) or threshold is None:
-            self._threshold = threshold
+        if threshold is None:
+            self._threshold = None
+        else:
+            self._threshold = float(threshold)
         self.update_graph()
 
     @property
@@ -159,6 +164,10 @@ class Graph3Di:
     def isready(self):
         return isinstance(self.graph, nx.MultiDiGraph)
 
+    def flowlines_by_id(self, flowline_ids: List[int]):
+        selected_edges = [(u, v) for u, v, e in self.graph.edges(data=True) if e['id'] in flowline_ids]
+        return selected_edges
+
     def calculate_aggregate(self):
         """Calculate the aggregate with current attributes"""
         # Split from update_graph because this is not necessary when just the threshold changes
@@ -179,7 +188,12 @@ class Graph3Di:
             print(f'end time = {self.end_time} type: {type(self.end_time)}')
             print(f'aggregation type: {type(self.aggregate)}')
 
-    def update_graph(self):
+    def get_aggregate_values(self, flowline_ids: List[int]):
+        id_aggregate_array = np.dstack([self.lines_subset.id, self.aggregate])[0]
+        mask = np.isin(self.lines_subset.id, flowline_ids)
+        return id_aggregate_array[mask]
+
+    def update_graph(self) -> bool:
         """Create NetworkX MultiDiGraph object if necessary properties have valid values"""
         if isinstance(self.aggregate, np.ndarray) \
                 and isinstance(self.threshold, float) \
@@ -206,6 +220,15 @@ class Graph3Di:
                 edges.append((line[0], line[1], {'id': ids[i]}))
 
             self._graph.add_edges_from(edges)
+            return True
+        else:
+            if not isinstance(self.aggregate, np.ndarray):
+                print(f"Updating graph failed because aggregate is not a numpy array but a {type(self.aggregate)}")
+            if not isinstance(self.threshold, float):
+                print(f"Updating graph failed because threshold is not a float but a {type(self.threshold)}")
+            if not isinstance(self.gr, GridH5ResultAdmin):
+                print(f"Updating graph failed because gr is not a GridH5ResultAdmin but a {type(self.gr)}")
+            return False
 
     def _upstream_or_downstream_nodes(self, target_node_ids, upstream: bool):
         result_node_ids = set()
