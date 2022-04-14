@@ -164,8 +164,8 @@ class Graph3Di:
     def isready(self):
         return isinstance(self.graph, nx.MultiDiGraph)
 
-    def flowlines_by_id(self, flowline_ids: List[int]):
-        selected_edges = [(u, v) for u, v, e in self.graph.edges(data=True) if e['id'] in flowline_ids]
+    def edges_by_flowline_id(self, flowline_ids: List[int]):
+        selected_edges = [edge for edge in self.graph.edges(data=True) if edge[2]['id'] in flowline_ids]
         return selected_edges
 
     def calculate_aggregate(self):
