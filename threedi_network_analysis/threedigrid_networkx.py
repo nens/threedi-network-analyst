@@ -168,6 +168,14 @@ class Graph3Di:
         selected_edges = [edge for edge in self.graph.edges(data=True) if edge[2]['id'] in flowline_ids]
         return selected_edges
 
+    def flowlines_node_ids(self, flowline_ids: List[int], upstream: bool):
+        """
+        For each input flowline, return the node id on the upstream (`upstream` == True) or
+        downstream (`upstream` == False) side
+        """
+        idx = 0 if upstream else 1
+        return [flowline[idx] for flowline in self.edges_by_flowline_id(flowline_ids=flowline_ids)]
+
     def calculate_aggregate(self):
         """Calculate the aggregate with current attributes"""
         # Split from update_graph because this is not necessary when just the threshold changes
