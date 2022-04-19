@@ -155,7 +155,7 @@ class CrossSectionalDischargeAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo(f"total discharge for gauge line {gauge_line.id()}: {total_discharge}")
             gaugeline_feature = QgsFeature(gaugelines_sink_fields)
             gaugeline_feature[0] = gauge_line.id()
-            gaugeline_feature[1] = total_discharge
+            gaugeline_feature[1] = float(total_discharge)
             gaugeline_feature.setGeometry(gauge_line.geometry())
             gaugelines_sink.addFeature(
                 gaugeline_feature,
