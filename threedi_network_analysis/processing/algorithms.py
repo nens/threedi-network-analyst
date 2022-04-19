@@ -83,7 +83,7 @@ class CrossSectionalDischargeAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFeatureSource(
                 self.GAUGE_LINE_INPUT,
-                self.tr('Gauge lines'),
+                self.tr('Gauge lines input'),
                 [QgsProcessing.TypeVectorLine]
             )
         )
@@ -91,7 +91,7 @@ class CrossSectionalDischargeAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT_FLOWLINES,
-                self.tr('Flowlines'),
+                self.tr('Intersected flowlines'),
                 type=QgsProcessing.TypeVectorLine
             )
         )
@@ -99,7 +99,7 @@ class CrossSectionalDischargeAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT_GAUGE_LINES,
-                self.tr('Output gauge lines'),
+                self.tr('Gauge lines output'),
                 type=QgsProcessing.TypeVectorLine
             )
         )
@@ -186,7 +186,12 @@ class CrossSectionalDischargeAlgorithm(QgsProcessingAlgorithm):
         return "Analysis"
 
     def shortHelpString(self):
-        return self.tr("Calculate total net discharge over a gauge line")
+        return self.tr(
+            "Calculate total net discharge over a gauge line. \n\n The sign (positive/negative) of the output"
+            "values depend on the drawing direction of the gauge line. Positive values indicate flow from"
+            "the left-hand side of the gauge line to the right-hand side. Negative values indicate flow from right"
+            "to left."
+        )
 
     def tr(self, string):
         return QCoreApplication.translate("Processing", string)
