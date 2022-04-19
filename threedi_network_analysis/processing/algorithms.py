@@ -187,9 +187,9 @@ class CrossSectionalDischargeAlgorithm(QgsProcessingAlgorithm):
 
     def shortHelpString(self):
         return self.tr(
-            "Calculate total net discharge over a gauge line. \n\n The sign (positive/negative) of the output"
-            "values depend on the drawing direction of the gauge line. Positive values indicate flow from"
-            "the left-hand side of the gauge line to the right-hand side. Negative values indicate flow from right"
+            "Calculate total net discharge over a gauge line. \n\n The sign (positive/negative) of the output "
+            "values depend on the drawing direction of the gauge line. Positive values indicate flow from "
+            "the left-hand side of the gauge line to the right-hand side. Negative values indicate flow from right "
             "to left."
         )
 
