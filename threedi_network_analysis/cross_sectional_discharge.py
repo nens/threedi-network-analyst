@@ -8,7 +8,8 @@ from threedigrid.admin.gridresultadmin import GridH5ResultAdmin
 from threedigrid.admin.lines.models import Lines
 
 from .threedigrid_networkx import Q_NET_SUM
-from .threedi_result_aggregation.base import time_aggregate
+from .threedi_result_aggregation.aggregation_classes import Aggregation
+from .threedi_result_aggregation.base import prepare_timeseries, aggregate_prepared_timeseries
 from .threedi_result_aggregation.threedigrid_ogr import threedigrid_to_ogr
 
 
@@ -88,20 +89,28 @@ def left_to_right_discharge(
         gr: GridH5ResultAdmin,
         gauge_line: LineString,
         start_time: float = None,
-        end_time: float = None
-) -> Tuple[Lines, np.array, float]:
+        end_time: float = None,
+        # aggregation: Aggregation = Q_NET_SUM
+) -> Tuple[Lines, np.array, np.array, float]:
     """
     Calculate the total net discharge from the left of a `gauge_line` to the right of that gauge line
 
     :returns: tuple of: Lines that intersect `gauge_line`,
+    timeseries of total discharge in left -> right direction,
     sum of net discharge per flowline in left -> right direction,
     total left -> right discharge
     """
     intersecting_lines = gr.lines.filter(line_coords__intersects_geometry=gauge_line)
-    q_net_sum = time_aggregate(
+    ts, tintervals = prepare_timeseries(
         nodes_or_lines=intersecting_lines,
         start_time=start_time,
         end_time=end_time,
+        aggregation=Q_NET_SUM
+    )
+    agg_by_flowline = aggregate_prepared_timeseries(
+        timeseries=ts,
+        tintervals=tintervals,
+        start_time=start_time,
         aggregation=Q_NET_SUM
     )
     is_left_to_right = flowline_start_nodes_left_of_line(
@@ -109,10 +118,12 @@ def left_to_right_discharge(
         gauge_line=gauge_line
     )
     direction = np.where(is_left_to_right, 1, -1)
-    q_net_sum_left_to_right = q_net_sum * direction
-    summed_vals = np.nansum(q_net_sum_left_to_right)
+    agg_by_flowline_left_to_right = agg_by_flowline * direction
+    summed_vals = np.nansum(agg_by_flowline_left_to_right)
+    ts_left_to_right = np.multiply(ts, direction)
+    ts_gauge_line = np.sum(ts_left_to_right, axis=1)
 
-    return intersecting_lines, q_net_sum_left_to_right, summed_vals
+    return intersecting_lines, ts_gauge_line, agg_by_flowline_left_to_right, summed_vals
 
 
 def left_to_right_discharge_ogr(
@@ -122,7 +133,7 @@ def left_to_right_discharge_ogr(
         start_time: float = None,
         end_time: float = None,
         gauge_line_id: int = None
-) -> float:
+) -> Tuple[np.array, float]:
     """
     Calculate the total net discharge from the left of a `gauge_line` to the right of that gauge line
 
@@ -130,7 +141,7 @@ def left_to_right_discharge_ogr(
 
     :returns: total left -> right discharge
     """
-    intersecting_lines, q_net_sum_left_to_right, summed_vals = left_to_right_discharge(
+    intersecting_lines, ts_gauge_line, q_net_sum_left_to_right, summed_vals = left_to_right_discharge(
         gr=gr,
         gauge_line=gauge_line,
         start_time=start_time,
@@ -145,4 +156,4 @@ def left_to_right_discharge_ogr(
         attributes=attributes,
         attr_data_types=attr_data_types
     )
-    return summed_vals
+    return ts_gauge_line, summed_vals

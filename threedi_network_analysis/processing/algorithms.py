@@ -146,13 +146,14 @@ class CrossSectionalDischargeAlgorithm(QgsProcessingAlgorithm):
         for gauge_line in gauge_lines_source.getFeatures():
             shapely_linestring = wkt.loads(gauge_line.geometry().asWkt())
             tgt_ds = MEMORY_DRIVER.CreateDataSource("")
-            total_discharge = left_to_right_discharge_ogr(
+            ts_gauge_line, total_discharge = left_to_right_discharge_ogr(
                 gr=gr,
                 gauge_line=shapely_linestring,
                 tgt_ds=tgt_ds,
                 gauge_line_id=gauge_line.id()
             )
             feedback.pushInfo(f"total discharge for gauge line {gauge_line.id()}: {total_discharge}")
+            feedback.pushInfo(f"discharge timeseries for gauge line {gauge_line.id()}: {ts_gauge_line}")
             gaugeline_feature = QgsFeature(gaugelines_sink_fields)
             gaugeline_feature[0] = gauge_line.id()
             gaugeline_feature[1] = float(total_discharge)
