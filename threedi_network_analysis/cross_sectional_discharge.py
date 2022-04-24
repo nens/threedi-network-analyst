@@ -121,7 +121,11 @@ def left_to_right_discharge(
     agg_by_flowline_left_to_right = agg_by_flowline * direction
     summed_vals = np.nansum(agg_by_flowline_left_to_right)
     ts_left_to_right = np.multiply(ts, direction)
-    ts_gauge_line = np.sum(ts_left_to_right, axis=1)
+    ts_values_gauge_line = np.sum(ts_left_to_right, axis=1)
+    if not start_time:
+        start_time = 0
+    timesteps = np.cumsum(np.concatenate(([0], tintervals[:-1]))) + start_time
+    ts_gauge_line = np.dstack([timesteps, ts_values_gauge_line]).squeeze()
 
     return intersecting_lines, ts_gauge_line, agg_by_flowline_left_to_right, summed_vals
 
