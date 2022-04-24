@@ -100,13 +100,16 @@ def left_to_right_discharge(
     sum of net discharge per flowline in left -> right direction,
     total left -> right discharge
     """
+    print("starting left_to_right_discharge")
     intersecting_lines = gr.lines.filter(line_coords__intersects_geometry=gauge_line)
+    print("found intersecting lines")
     ts, tintervals = prepare_timeseries(
         nodes_or_lines=intersecting_lines,
         start_time=start_time,
         end_time=end_time,
         aggregation=Q_NET_SUM
     )
+    print("prepared timeseries")
     agg_by_flowline = aggregate_prepared_timeseries(
         timeseries=ts,
         tintervals=tintervals,

@@ -38,10 +38,12 @@ from qgis.core import QgsField
 from qgis.core import QgsFields
 from qgis.core import QgsProcessing
 from qgis.core import QgsProcessingAlgorithm
+from qgis.core import QgsProcessingContext
 from qgis.core import QgsProcessingParameterFeatureSink
 from qgis.core import QgsProcessingParameterFeatureSource
 from qgis.core import QgsProcessingParameterFile
 from qgis.core import QgsProcessingParameterFileDestination
+from qgis.core import QgsVectorLayer
 from qgis.core import QgsWkbTypes
 from qgis.PyQt.QtCore import (QCoreApplication, QVariant)
 from shapely import wkt
@@ -170,13 +172,12 @@ class CrossSectionalDischargeAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo(f"total discharge for gauge line {gauge_line.id()}: {total_discharge}")
             if i == 0:
                 ts_all_gauge_lines = ts_gauge_line
-                column_names = ["timestep",str(gauge_line.id())]
+                column_names = ['"timestep"', f'"{gauge_line.id()}"']
                 formatting = ["%d", "%.6f"]
             else:
                 ts_all_gauge_lines = np.column_stack([ts_all_gauge_lines, ts_gauge_line[:, 1]])
-                column_names.append(str(gauge_line.id()))
+                column_names.append(f'"{gauge_line.id()}"')
                 formatting.append("%.6f")
-            feedback.pushInfo(f"discharge timeseries for gauge line {gauge_line.id()}: {ts_gauge_line}")
             gaugeline_feature = QgsFeature(gaugelines_sink_fields)
             gaugeline_feature[0] = gauge_line.id()
             gaugeline_feature[1] = float(total_discharge)
@@ -203,6 +204,12 @@ class CrossSectionalDischargeAlgorithm(QgsProcessingAlgorithm):
             fmt=formatting,
             comments=""
         )
+        layer = QgsVectorLayer(csv_output_file_path, "Time series output")
+        context.temporaryLayerStore().addMapLayer(layer)
+        layer_details = QgsProcessingContext.LayerDetails(
+            csv_output_file_path, context.project(), "Time series output"
+        )
+        context.addLayerToLoadOnCompletion(layer.id(), layer_details)
 
         return {
             self.OUTPUT_FLOWLINES: flowlines_sink_dest_id,
