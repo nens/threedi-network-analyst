@@ -82,14 +82,15 @@ def layer_as_uri(layer, index=True):
     return geom_param + '?' + '&'.join(other_params)
 
 
-def ogr_feature_as_qgis_feature(ogr_feature, qgs_vector_lyr):
+def ogr_feature_as_qgis_feature(ogr_feature, qgs_vector_lyr, tgt_wkb_type=None, tgt_fields=None):
     # start_time = time.perf_counter()
     # f = open("C:\\Users\\leendert.vanwolfswin\\Downloads\\ogr_feature_as_qgis_feature.log", "a+")
     # f.write('action; time\n')
 
     # geometry
     ogr_geom_ref = ogr_feature.GetGeometryRef()
-    tgt_wkb_type = qgs_vector_lyr.wkbType()
+    if tgt_wkb_type is None:
+        tgt_wkb_type = qgs_vector_lyr.wkbType()
     if not QgsWkbTypes.hasZ(tgt_wkb_type):
         ogr_geom_ref.FlattenTo2D()
     ogr_geom_wkb = ogr_geom_ref.ExportToWkb()
@@ -106,7 +107,9 @@ def ogr_feature_as_qgis_feature(ogr_feature, qgs_vector_lyr):
     #     ogr_field_value = ogr_feature.GetField(ogr_field_idx)
     #     attributes[idx] = ogr_field_value
     attributes = []
-    for field in qgs_vector_lyr.fields():
+    if tgt_fields is None:
+        tgt_fields = qgs_vector_lyr.fields()
+    for field in tgt_fields:
         ogr_field_idx = ogr_feature.GetFieldIndex(field.name())
         if ogr_field_idx != -1:
             ogr_field_value = ogr_feature.GetField(ogr_field_idx)

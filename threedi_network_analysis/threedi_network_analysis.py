@@ -24,8 +24,12 @@
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
+from qgis.core import QgsApplication
 # Initialize Qt resources from file resources.py
 from .resources import *
+
+# Import processing provider
+from threedi_network_analysis.processing.provider import ThreeDiNetworkAnalysisProvider
 
 # Import the code for the DockWidget
 from .threedi_network_analysis_dockwidget import ThreeDiNetworkAnalystDockWidget
@@ -64,15 +68,12 @@ class ThreeDiNetworkAnalyst:
         # Declare instance attributes
         self.actions = []
         self.menu = self.tr(u'&3Di Network Analyst')
-        # TODO: We are going to let the user set this up in a future iteration
         self.toolbar = self.iface.addToolBar(u'ThreeDiNetworkAnalyst')
         self.toolbar.setObjectName(u'ThreeDiNetworkAnalyst')
 
-        #print "** INITIALIZING ThreeDiNetworkAnalyst"
-
         self.pluginIsActive = False
         self.dockwidget = None
-
+        self.provider = None
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -163,6 +164,10 @@ class ThreeDiNetworkAnalyst:
 
         return action
 
+    def initProcessing(self):
+        """Create the Qgis Processing Toolbox provider and its algorithms"""
+        self.provider = ThreeDiNetworkAnalysisProvider()
+        QgsApplication.processingRegistry().addProvider(self.provider)
 
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
@@ -173,6 +178,7 @@ class ThreeDiNetworkAnalyst:
             text=self.tr(u'Use network analysis for 3Di results'),
             callback=self.run,
             parent=self.iface.mainWindow())
+        self.initProcessing()
 
     #--------------------------------------------------------------------------
 
@@ -196,8 +202,7 @@ class ThreeDiNetworkAnalyst:
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
-
-        #print "** UNLOAD ThreeDiNetworkAnalyst"
+        QgsApplication.processingRegistry().removeProvider(self.provider)
         if self.dockwidget is not None:
             # self.dockwidget.remove_preview_cell_layer()
             pass
