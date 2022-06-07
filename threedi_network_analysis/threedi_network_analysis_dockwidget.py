@@ -86,9 +86,11 @@ class LayerExistsError(Exception):
     """Raised when attempting to create a target_node_layer that already exists"""
     pass
 
+
 class FindImperviousSurfaceError(Exception):
     """Raised when something goes wrong when finding impervious surfaces"""
     pass
+
 
 def bbox_of_features(features: List):
     """Returns None if empty list is given as input"""
@@ -283,13 +285,10 @@ class Graph3DiQgsConnector:
 
             if layer_replaced:
                 self.iface.messageBar().pushMessage(
-                    "3Di Network Analysis",
+                    MESSAGE_CATEGORY,
                     "Oops, I needed the layer(s) you deleted! I created them again",
                     Qgis.Info
                 )
-            # self.protect_layers = False
-            # self.refill_layer_group()
-            # self.protect_layers = True
 
     def update_layer_filters(self):
         filtered_ids = set(self.result_sets) & set(self.filter if self.filter is not None else self.result_sets)
@@ -301,8 +300,8 @@ class Graph3DiQgsConnector:
             subset_string = 'catchment_id IN ({})'.format(filtered_ids_str)
             target_node_layer_analyzed_nodes_rule_str = \
                 f'array_intersect( string_to_array("result_sets"),  array({filtered_ids_str}))'
-
-        flowline_subset_string = ' AND '.join(filter(None, [subset_string, 'kcu != 100'])) # filter to leave subset_string out if empty
+        # filter to leave subset_string out if empty
+        flowline_subset_string = ' AND '.join(filter(None, [subset_string, 'kcu != 100']))
         self.result_catchment_layer.setSubsetString(subset_string)
         self.result_cell_layer.setSubsetString(subset_string)
         self.result_flowline_layer.setSubsetString(flowline_subset_string)
@@ -391,23 +390,6 @@ class Graph3DiQgsConnector:
         root = QgsProject.instance().layerTreeRoot()
         self.layer_group = root.insertGroup(0, '3Di Network Analysis')
 
-    # Commented out because this causes an infinite loop and I have not found any way to prevent that
-    # def refill_layer_group(self):
-    #     """Remove all layers from the group and add them again in the correct order"""
-    #     for lyr in [
-    #         self.target_node_layer,
-    #         self.result_cell_layer,
-    #         self.result_flowline_layer,
-    #         self.result_catchment_layer,
-    #         self.impervious_surface_layer
-    #     ]:
-    #         try:
-    #             if lyr is not None:
-    #                 self.layer_group.removeLayer(lyr)
-    #                 self.layer_group.insertLayer(0, lyr)
-    #         except AttributeError:
-    #             continue
-
     def remove_layer_group(self):
         QgsProject.instance().layerTreeRoot().removeChildNode(self.layer_group)
 
@@ -472,7 +454,6 @@ class Graph3DiQgsConnector:
 
     def update_analyzed_target_cells(self, target_node_ids, result_set):
         ids_str = ','.join(map(str, target_node_ids))
-        expression_str = f'id IN ({ids_str})'
         request = QgsFeatureRequest()
         request.setFilterExpression(f'id IN ({ids_str})')
         idx = self.target_node_layer.fields().indexFromName('result_sets')
@@ -525,7 +506,6 @@ class Graph3DiQgsConnector:
                            )
         layer = ds.GetLayerByName('cell')
         append_to_qgs_vector_layer(ogr_layer=layer, qgs_vector_layer=self.result_cell_layer)
-
 
     def clear_result_cell_layer(self):
         """Remove all features from layer that contains the upstream and/or downstream cells"""
@@ -677,7 +657,7 @@ class Graph3DiQgsConnector:
             if feature.id() not in self.smooth_result_catchments:
                 avg_cell_size = self.average_cell_size(feature['catchment_id'])
                 avg_grid_space = np.sqrt(avg_cell_size)
-                sigma = np.max([10, 16 * np.log(avg_grid_space) - 30]) # formula fitted to trial and error results
+                sigma = np.max([10, 16 * np.log(avg_grid_space) - 30])  # formula fitted to trial and error results
                 sample_dist = np.max([2, 2 * np.log(avg_grid_space) - 3])
                 geom = feature.geometry()
                 ogr_geom = ogr.CreateGeometryFromWkb(geom.asWkb())
@@ -698,8 +678,8 @@ class Graph3DiQgsConnector:
             self.protect_layers = True
 
     def create_impervious_surface_layer(self):
-        # This layer is different from the other result layers, because it is a copy of an existing layer from the spatialite
-        # It is easier to copy the layer using the QGIS API
+        # This layer is different from the other result layers, because it is a copy of an existing layer from the
+        # spatialite; It is easier to copy the layer using the QGIS API
         self.impervious_surface_source_layer = QgsVectorLayer(
             path=str(self.sqlite) + '|layername=v2_impervious_surface',
             baseName='v2_impervious_surface',
@@ -720,8 +700,10 @@ class Graph3DiQgsConnector:
         self.add_to_layer_tree_group(self.impervious_surface_layer)
 
     def append_impervious_surfaces(self, result_set: int, ids: List = None, expression: str = None):
-        """Copy features from the source v2_impervious_surface table to the result table
-        impervious surfaces may be selected by ids or by expression. Expression overrules ids"""
+        """
+        Copy features from the source v2_impervious_surface table to the result table
+        impervious surfaces may be selected by ids or by expression. Expression overrules ids
+        """
         impervious_surface_layer_subset_string = self.impervious_surface_layer.subsetString()
         self.impervious_surface_layer.setSubsetString('')
         max_fid_before = self.impervious_surface_layer.dataProvider().featureCount()
@@ -745,12 +727,16 @@ class Graph3DiQgsConnector:
         return True
 
     def clear_impervious_surface_layer(self):
-        """Remove all features from layer"""
+        """
+        Remove all features from layer
+        """
         if self.impervious_surface_layer is not None:
             self.impervious_surface_layer.dataProvider().truncate()
 
     def remove_impervious_surface_layer(self):
-        """Remove layer that contains the upstream and/or downstream flowlines"""
+        """
+        Remove layer that contains the upstream and/or downstream flowlines
+        """
         if self.impervious_surface_layer is not None:
             self.protect_layers = False
             QgsProject.instance().removeMapLayer(self.impervious_surface_layer)
@@ -758,8 +744,9 @@ class Graph3DiQgsConnector:
             self.protect_layers = True
 
     def find_impervious_surfaces(self, node_ids: List, result_set: int = None):
-        """Find impervious surfaces connected to nodes \
-        and append them to the impervious surface layer"""
+        """
+        Find impervious surfaces connected to nodes and append them to the impervious surface layer
+        """
         if self.impervious_surface_layer is not None and self.sqlite is not None:
             nodes = self.gr.nodes.filter(id__in=node_ids)
             connection_node_ids = set(nodes.content_pk) - {None, -9999}
@@ -779,8 +766,7 @@ class Graph3DiQgsConnector:
             upstream: bool,
             downstream: bool
     ):
-
-        progressMessageBar = self.iface.messageBar().createMessage("3Di Network Analysis is being performed...")
+        progress_message_bar = self.iface.messageBar().createMessage("3Di Network Analysis is being performed...")
         progress = QtWidgets.QProgressBar()
         current_progress = 0
         max_progress = 2
@@ -790,8 +776,8 @@ class Graph3DiQgsConnector:
             max_progress += 3
         progress.setMaximum(max_progress)
         progress.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        progressMessageBar.layout().addWidget(progress)
-        self.iface.messageBar().pushWidget(progressMessageBar, Qgis.Info)
+        progress_message_bar.layout().addWidget(progress)
+        self.iface.messageBar().pushWidget(progress_message_bar, Qgis.Info)
         self.iface.mainWindow().repaint()  # to show the message before the task starts
 
         result_set = self.new_result_set_id()
@@ -821,7 +807,7 @@ class Graph3DiQgsConnector:
                 )
             except FindImperviousSurfaceError:
                 self.iface.messageBar().pushMessage(
-                    "3Di Network Analysis",
+                    MESSAGE_CATEGORY,
                     "Something went wrong when finding impervious surfaces",
                     Qgis.Warning
                 )
@@ -978,7 +964,11 @@ class CatchmentMapTool(QgsMapToolIdentify):
 
         identify_results = self.identify(x=int(x), y=int(y), layerList=[self.gq.target_node_layer])
         if len(identify_results) == 0:
-            self.parent_widget.iface.messageBar().pushMessage("3Di Network Analysis", "Please click on a target node", level=Qgis.Info)
+            self.parent_widget.iface.messageBar().pushMessage(
+                MESSAGE_CATEGORY,
+                "Please click on a target node",
+                level=Qgis.Info
+            )
         else:
             target_node_id = identify_results[0].mFeature.id()
             self.gq.upstream_downstream_analysis(
@@ -1085,7 +1075,7 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 gr=gr
             )
             self.iface.messageBar().pushMessage(
-                '3Di Network Analysis',
+                MESSAGE_CATEGORY,
                 'Started pre-processing simulation results',
                 Qgis.Info
             )
@@ -1116,9 +1106,17 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         vlayer = QgsVectorLayer(uri.uri(), display_name, 'spatialite')
         if vlayer.isValid():
             self.gq.sqlite = self.QgsFileWidgetSqlite.filePath()
-            self.iface.messageBar().pushMessage("3Di Network Analysis", "Succesfully added impervious surfaces from model", level=Qgis.Success)
+            self.iface.messageBar().pushMessage(
+                MESSAGE_CATEGORY,
+                "Succesfully added impervious surfaces from model",
+                level=Qgis.Success
+            )
         else:
-            self.iface.messageBar().pushMessage("3Di Network Analysis", "Invalid 3Di model sqlite selected", level=Qgis.Warning)
+            self.iface.messageBar().pushMessage(
+                MESSAGE_CATEGORY,
+                "Invalid 3Di model sqlite selected",
+                level=Qgis.Warning
+            )
             self.QgsFileWidgetSqlite.setFilePath('')
 
     def threshold_changed(self):
@@ -1157,7 +1155,11 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             selected_node_ids.append(feature.id())
 
         if len(selected_node_ids) == 0:
-            self.iface.messageBar().pushMessage("3Di Network Analysis", "Please first select one or more target nodes", level=Qgis.Warning)
+            self.iface.messageBar().pushMessage(
+                MESSAGE_CATEGORY,
+                "Please first select one or more target nodes",
+                level=Qgis.Warning
+            )
         else:
             if self.gq.graph_3di.isready:
                 self.gq.upstream_downstream_analysis(
@@ -1166,7 +1168,11 @@ class ThreeDiNetworkAnalystDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     downstream=self.checkBoxDownstream.isChecked()
                 )
             else:
-                self.iface.messageBar().pushMessage("3Di Network Analysis", "Please select 3Di results first", level=Qgis.Warning)
+                self.iface.messageBar().pushMessage(
+                    MESSAGE_CATEGORY,
+                    "Please select 3Di results first",
+                    level=Qgis.Warning
+                )
 
     def pushbutton_catchment_for_polygons_clicked(self):
         if self.gq.graph_3di.isready:
@@ -1269,7 +1275,9 @@ class UpdateGridAdminTask(QgsTask):
             raise self.exception
         if result:
             self.parent.gq.gr_updated()
-            output_timestep_best_guess = int(self.parent.gq.gr.nodes.timestamps[-1] / (len(self.parent.gq.gr.nodes.timestamps) - 1))
+            output_timestep_best_guess = int(
+                self.parent.gq.gr.nodes.timestamps[-1] / (len(self.parent.gq.gr.nodes.timestamps) - 1)
+            )
             start_time = 0
             end_time = int(self.parent.gq.gr.nodes.timestamps[-1])
 
@@ -1294,33 +1302,9 @@ class UpdateGridAdminTask(QgsTask):
             QgsMessageLog.logMessage("Failed pre-processing simulation results", MESSAGE_CATEGORY, level=Qgis.Critical)
 
     def cancel(self):
-        QgsMessageLog.logMessage("Pre-processing simulation results cancelled by user", MESSAGE_CATEGORY, level=Qgis.Info)
+        QgsMessageLog.logMessage(
+            "Pre-processing simulation results cancelled by user",
+            MESSAGE_CATEGORY,
+            level=Qgis.Info
+        )
         super().cancel()
-
-
-def nearest_value(layer: QgsVectorLayer, fieldname: str, value: int, up: bool):
-    # TODO handle empty layer
-    # TODO handle requests for non-existent or non-int fields
-    if layer.featureCount() == 0:
-        return None
-    idx = layer.fields().indexFromName(fieldname)
-    minval = layer.minimumValue(idx)
-    maxval = layer.maximumValue(idx)
-    if value < minval:
-        return minval
-    if value > maxval:
-        return maxval
-    request = QgsFeatureRequest()
-    clause = QgsFeatureRequest.OrderByClause(fieldname, ascending=up)
-    orderby = QgsFeatureRequest.OrderBy([clause])
-    request.setOrderBy(orderby)
-    features = layer.getFeatures(request)
-    for feat in features:
-        found_val = feat.attributes()[idx]
-        if up:
-            if found_val >= value:
-                return found_val
-        else:
-            if found_val <= value:
-                return found_val
-    return None
